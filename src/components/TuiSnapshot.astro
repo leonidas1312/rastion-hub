@@ -1,0 +1,124 @@
+---
+interface Props {
+  title?: string;
+  lines?: string[];
+  imageSrc?: string;
+  imageAlt?: string;
+  caption?: string;
+}
+
+const {
+  title = 'Rastion TUI Snapshot',
+  lines = [],
+  imageSrc,
+  imageAlt = 'Rastion terminal snapshot',
+  caption
+} = Astro.props;
+
+const base = import.meta.env.BASE_URL;
+const resolvedImageSrc =
+  imageSrc && !/^https?:\/\//.test(imageSrc)
+    ? `${base}${imageSrc.replace(/^\/+/, '')}`
+    : imageSrc;
+---
+
+<figure class="snapshot-frame">
+  <div class="snapshot-bar">
+    <div class="snapshot-lights" aria-hidden="true">
+      <span></span><span></span><span></span>
+    </div>
+    <p>{title}</p>
+  </div>
+
+  {
+    resolvedImageSrc ? (
+      <img class="snapshot-image" src={resolvedImageSrc} alt={imageAlt} loading="lazy" />
+    ) : (
+      <pre class="snapshot-terminal"><code>{lines.join('\n')}</code></pre>
+    )
+  }
+
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .snapshot-frame {
+    margin: 0;
+    border: 1px solid var(--code-border);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--code-bg);
+    box-shadow: var(--shadow-glow);
+  }
+
+  .snapshot-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.72rem;
+    border-bottom: 1px solid var(--code-border);
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0));
+  }
+
+  .snapshot-lights {
+    display: inline-flex;
+    gap: 0.28rem;
+  }
+
+  .snapshot-lights span {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .snapshot-lights span:nth-child(1) {
+    background: #f88b8b;
+  }
+
+  .snapshot-lights span:nth-child(2) {
+    background: #ffcf5c;
+  }
+
+  .snapshot-lights span:nth-child(3) {
+    background: #79e28d;
+  }
+
+  .snapshot-bar p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    letter-spacing: 0.02em;
+  }
+
+  .snapshot-terminal {
+    margin: 0;
+    padding: 0.85rem;
+    overflow-x: auto;
+    text-align: left;
+    min-height: 10.4rem;
+  }
+
+  .snapshot-terminal code {
+    white-space: pre;
+    font-family: 'Courier New', monospace;
+    font-size: 0.82rem;
+    color: var(--code-text);
+    line-height: 1.5;
+  }
+
+  .snapshot-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    object-fit: cover;
+  }
+
+  figcaption {
+    margin: 0;
+    padding: 0.58rem 0.85rem 0.75rem;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--code-border);
+    font-size: 0.82rem;
+  }
+</style>

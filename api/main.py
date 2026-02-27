@@ -1,0 +1,628 @@
+import re
+import shutil
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import (
+    Body,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Path as ApiPath,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import inspect, or_, text
+from sqlalchemy.orm import Session, joinedload
+
+try:
+    from . import auth, models
+    from .database import Base, engine, get_db
+except ImportError:  # pragma: no cover
+    import auth
+    import models
+    from database import Base, engine, get_db
+
+APP_DIR = Path(__file__).resolve().parent
+STORAGE_DIR = APP_DIR / "storage"
+PROBLEMS_DIR = STORAGE_DIR / "problems"
+SOLVERS_DIR = STORAGE_DIR / "solvers"
+SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+security = HTTPBearer(auto_error=False)
+app = FastAPI(title="Rastion Hub API", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:4321",
+        "http://127.0.0.1:4321",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    avatar_url: str
+
+
+class ProblemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    version: str
+    description: str
+    category: str | None = None
+    download_count: int
+    rating: float
+    owner: UserOut
+
+
+class SolverOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    version: str
+    description: str
+    category: str | None = None
+    download_count: int
+    rating: float
+    owner: UserOut
+
+
+class ProblemListResponse(BaseModel):
+    items: list[ProblemOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class SolverListResponse(BaseModel):
+    items: list[SolverOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+class RatePayload(BaseModel):
+    rating: float = Field(ge=0.0, le=5.0)
+
+
+class RateResponse(BaseModel):
+    id: int
+    item_type: str
+    rating: float
+    rating_count: int
+
+
+def ensure_category_columns() -> None:
+    inspector = inspect(engine)
+
+    problem_columns = {column["name"] for column in inspector.get_columns("problems")}
+    solver_columns = {column["name"] for column in inspector.get_columns("solvers")}
+
+    with engine.begin() as connection:
+        if "category" not in problem_columns:
+            connection.execute(text("ALTER TABLE problems ADD COLUMN category VARCHAR"))
+        if "category" not in solver_columns:
+            connection.execute(text("ALTER TABLE solvers ADD COLUMN category VARCHAR"))
+
+
+@app.on_event("startup")
+def on_startup() -> None:
+    Base.metadata.create_all(bind=engine)
+    ensure_category_columns()
+    PROBLEMS_DIR.mkdir(parents=True, exist_ok=True)
+    SOLVERS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def sanitize_name(raw: str) -> str:
+    cleaned = SAFE_NAME_RE.sub("-", raw.strip()).strip("-.")
+    return cleaned or "item"
+
+
+def normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def build_archive_path(item_type: str, user_id: int, name: str, version: str) -> Path:
+    base = PROBLEMS_DIR if item_type == "problems" else SOLVERS_DIR
+    return base / str(user_id) / sanitize_name(name) / f"{sanitize_name(version)}.zip"
+
+
+def ensure_zip(upload: UploadFile) -> None:
+    filename = upload.filename or ""
+    if Path(filename).suffix.lower() != ".zip":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file must be a .zip archive.",
+        )
+
+
+def persist_upload(upload: UploadFile, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    upload.file.seek(0)
+    with destination.open("wb") as out_file:
+        shutil.copyfileobj(upload.file, out_file)
+
+
+def archive_path_from_record(record_path: str | None) -> Path | None:
+    if not record_path:
+        return None
+    candidate = APP_DIR / record_path
+    return candidate if candidate.exists() else None
+
+
+def remove_file_if_exists(path: Path | None) -> None:
+    if path and path.exists():
+        path.unlink()
+
+
+def trim_empty_parents(path: Path, stop: Path) -> None:
+    current = path
+    while current != stop and current != current.parent:
+        try:
+            current.rmdir()
+        except OSError:
+            break
+        current = current.parent
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: Session = Depends(get_db),
+) -> models.User:
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token.",
+        )
+    return await auth.authenticate_token(db, credentials.credentials)
+
+
+@app.post("/auth/login", response_model=LoginResponse)
+async def login(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: Session = Depends(get_db),
+):
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token.",
+        )
+
+    github_user = await auth.fetch_github_user(credentials.credentials)
+    user = auth.upsert_user_from_github(db, github_user)
+    access_token = auth.create_access_token(str(user.id))
+    return LoginResponse(access_token=access_token, user=user)
+
+
+@app.get("/auth/me", response_model=UserOut)
+async def me(current_user: models.User = Depends(get_current_user)):
+    return current_user
+
+
+@app.get("/problems", response_model=ProblemListResponse)
+def list_problems(
+    q: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    normalized_category = normalize_optional_text(category)
+    query = (
+        db.query(models.Problem)
+        .options(joinedload(models.Problem.owner))
+        .order_by(models.Problem.created_at.desc())
+    )
+
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                models.Problem.name.ilike(like),
+                models.Problem.description.ilike(like),
+            )
+        )
+
+    if normalized_category:
+        query = query.filter(models.Problem.category == normalized_category)
+
+    total = query.count()
+    items = query.offset((page - 1) * page_size).limit(page_size).all()
+    return ProblemListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@app.post("/problems", response_model=ProblemOut, status_code=status.HTTP_201_CREATED)
+async def upload_problem(
+    name: str = Form(..., min_length=1, max_length=120),
+    version: str = Form(..., min_length=1, max_length=60),
+    description: str = Form("", max_length=5000),
+    category: str | None = Form(None, max_length=120),
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    normalized_category = normalize_optional_text(category)
+    ensure_zip(file)
+
+    existing = (
+        db.query(models.Problem)
+        .filter(
+            models.Problem.owner_id == current_user.id,
+            models.Problem.name == name,
+            models.Problem.version == version,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Benchmark with this name and version already exists for this user.",
+        )
+
+    archive_path = build_archive_path("problems", current_user.id, name, version)
+
+    problem = models.Problem(
+        owner_id=current_user.id,
+        name=name,
+        version=version,
+        description=description,
+        category=normalized_category,
+        created_at=datetime.utcnow(),
+    )
+
+    try:
+        persist_upload(file, archive_path)
+
+        db.add(problem)
+        db.flush()
+
+        version_record = models.ProblemVersion(
+            problem_id=problem.id,
+            version=version,
+            description=description,
+            file_path=str(archive_path.relative_to(APP_DIR)),
+            created_at=datetime.utcnow(),
+        )
+        db.add(version_record)
+        db.commit()
+    except Exception:
+        db.rollback()
+        remove_file_if_exists(archive_path)
+        raise
+
+    db.refresh(problem)
+    return (
+        db.query(models.Problem)
+        .options(joinedload(models.Problem.owner))
+        .filter(models.Problem.id == problem.id)
+        .one()
+    )
+
+
+@app.get("/problems/{problem_id}", response_model=ProblemOut)
+def get_problem(problem_id: int, db: Session = Depends(get_db)):
+    problem = (
+        db.query(models.Problem)
+        .options(joinedload(models.Problem.owner))
+        .filter(models.Problem.id == problem_id)
+        .first()
+    )
+    if not problem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Benchmark not found.")
+    return problem
+
+
+@app.get("/problems/{problem_id}/download")
+def download_problem(problem_id: int, db: Session = Depends(get_db)):
+    problem = db.query(models.Problem).filter(models.Problem.id == problem_id).first()
+    if not problem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Benchmark not found.")
+
+    version_record = (
+        db.query(models.ProblemVersion)
+        .filter(
+            models.ProblemVersion.problem_id == problem.id,
+            models.ProblemVersion.version == problem.version,
+        )
+        .order_by(models.ProblemVersion.created_at.desc())
+        .first()
+    )
+
+    archive_path = archive_path_from_record(version_record.file_path if version_record else None)
+    if archive_path is None:
+        archive_path = build_archive_path("problems", problem.owner_id, problem.name, problem.version)
+
+    if not archive_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found.")
+
+    problem.download_count += 1
+    db.add(problem)
+    db.commit()
+
+    filename = f"{sanitize_name(problem.name)}-{sanitize_name(problem.version)}.zip"
+    return FileResponse(path=archive_path, media_type="application/zip", filename=filename)
+
+
+@app.delete("/problems/{problem_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_problem(
+    problem_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    problem = (
+        db.query(models.Problem)
+        .options(joinedload(models.Problem.versions))
+        .filter(models.Problem.id == problem_id)
+        .first()
+    )
+    if not problem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Benchmark not found.")
+    if problem.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner access required.")
+
+    fallback_archive = build_archive_path("problems", problem.owner_id, problem.name, problem.version)
+    removed_any = False
+    for version in problem.versions:
+        version_path = archive_path_from_record(version.file_path)
+        remove_file_if_exists(version_path)
+        removed_any = removed_any or bool(version_path)
+
+    if not removed_any:
+        remove_file_if_exists(fallback_archive)
+
+    db.delete(problem)
+    db.commit()
+
+    trim_empty_parents(fallback_archive.parent, PROBLEMS_DIR)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/solvers", response_model=SolverListResponse)
+def list_solvers(
+    q: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    normalized_category = normalize_optional_text(category)
+    query = (
+        db.query(models.Solver)
+        .options(joinedload(models.Solver.owner))
+        .order_by(models.Solver.created_at.desc())
+    )
+
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                models.Solver.name.ilike(like),
+                models.Solver.description.ilike(like),
+            )
+        )
+
+    if normalized_category:
+        query = query.filter(models.Solver.category == normalized_category)
+
+    total = query.count()
+    items = query.offset((page - 1) * page_size).limit(page_size).all()
+    return SolverListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@app.post("/solvers", response_model=SolverOut, status_code=status.HTTP_201_CREATED)
+async def upload_solver(
+    name: str = Form(..., min_length=1, max_length=120),
+    version: str = Form(..., min_length=1, max_length=60),
+    description: str = Form("", max_length=5000),
+    category: str | None = Form(None, max_length=120),
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    normalized_category = normalize_optional_text(category)
+    ensure_zip(file)
+
+    existing = (
+        db.query(models.Solver)
+        .filter(
+            models.Solver.owner_id == current_user.id,
+            models.Solver.name == name,
+            models.Solver.version == version,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solver with this name and version already exists for this user.",
+        )
+
+    archive_path = build_archive_path("solvers", current_user.id, name, version)
+
+    solver = models.Solver(
+        owner_id=current_user.id,
+        name=name,
+        version=version,
+        description=description,
+        category=normalized_category,
+        created_at=datetime.utcnow(),
+    )
+
+    try:
+        persist_upload(file, archive_path)
+
+        db.add(solver)
+        db.flush()
+
+        version_record = models.SolverVersion(
+            solver_id=solver.id,
+            version=version,
+            description=description,
+            file_path=str(archive_path.relative_to(APP_DIR)),
+            created_at=datetime.utcnow(),
+        )
+        db.add(version_record)
+        db.commit()
+    except Exception:
+        db.rollback()
+        remove_file_if_exists(archive_path)
+        raise
+
+    db.refresh(solver)
+    return (
+        db.query(models.Solver)
+        .options(joinedload(models.Solver.owner))
+        .filter(models.Solver.id == solver.id)
+        .one()
+    )
+
+
+@app.get("/solvers/{solver_id}", response_model=SolverOut)
+def get_solver(solver_id: int, db: Session = Depends(get_db)):
+    solver = (
+        db.query(models.Solver)
+        .options(joinedload(models.Solver.owner))
+        .filter(models.Solver.id == solver_id)
+        .first()
+    )
+    if not solver:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solver not found.")
+    return solver
+
+
+@app.get("/solvers/{solver_id}/download")
+def download_solver(solver_id: int, db: Session = Depends(get_db)):
+    solver = db.query(models.Solver).filter(models.Solver.id == solver_id).first()
+    if not solver:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solver not found.")
+
+    version_record = (
+        db.query(models.SolverVersion)
+        .filter(
+            models.SolverVersion.solver_id == solver.id,
+            models.SolverVersion.version == solver.version,
+        )
+        .order_by(models.SolverVersion.created_at.desc())
+        .first()
+    )
+
+    archive_path = archive_path_from_record(version_record.file_path if version_record else None)
+    if archive_path is None:
+        archive_path = build_archive_path("solvers", solver.owner_id, solver.name, solver.version)
+
+    if not archive_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found.")
+
+    solver.download_count += 1
+    db.add(solver)
+    db.commit()
+
+    filename = f"{sanitize_name(solver.name)}-{sanitize_name(solver.version)}.zip"
+    return FileResponse(path=archive_path, media_type="application/zip", filename=filename)
+
+
+@app.delete("/solvers/{solver_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_solver(
+    solver_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    solver = (
+        db.query(models.Solver)
+        .options(joinedload(models.Solver.versions))
+        .filter(models.Solver.id == solver_id)
+        .first()
+    )
+    if not solver:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solver not found.")
+    if solver.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner access required.")
+
+    fallback_archive = build_archive_path("solvers", solver.owner_id, solver.name, solver.version)
+    removed_any = False
+    for version in solver.versions:
+        version_path = archive_path_from_record(version.file_path)
+        remove_file_if_exists(version_path)
+        removed_any = removed_any or bool(version_path)
+
+    if not removed_any:
+        remove_file_if_exists(fallback_archive)
+
+    db.delete(solver)
+    db.commit()
+
+    trim_empty_parents(fallback_archive.parent, SOLVERS_DIR)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post("/{item_type}/{item_id}/rate", response_model=RateResponse)
+def rate_item(
+    item_type: str = ApiPath(..., description="benchmark/benchmarks or solver/solvers"),
+    item_id: int = ApiPath(..., ge=1),
+    payload: RatePayload = Body(...),
+    _: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    normalized = item_type.lower().strip()
+
+    if normalized in {"problem", "problems", "benchmark", "benchmarks"}:
+        item = db.query(models.Problem).filter(models.Problem.id == item_id).first()
+        tag = "benchmark"
+    elif normalized in {"solver", "solvers"}:
+        item = db.query(models.Solver).filter(models.Solver.id == item_id).first()
+        tag = "solver"
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Type must be benchmark/benchmarks or solver/solvers.",
+        )
+
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+
+    count = int(item.rating_count or 0)
+    current_score = float(item.rating or 0.0)
+
+    item.rating = ((current_score * count) + payload.rating) / (count + 1)
+    item.rating_count = count + 1
+
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    return RateResponse(
+        id=item.id,
+        item_type=tag,
+        rating=round(item.rating, 4),
+        rating_count=item.rating_count,
+    )

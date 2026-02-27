@@ -1,0 +1,133 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+const base = import.meta.env.BASE_URL;
+const installCommand = 'pip install -U "rastion[tui]"';
+---
+
+<Layout title="Rastion Hub - Open Source Optimization Lab" description="Open source optimization lab with onboarding-first terminal workflow.">
+  <section class="hero" aria-label="Onboarding hero">
+    <img class="owl" src={`${base}rastion-logo1-transparent.png`} alt="Rastion owl logo" />
+    <p class="catchphrase">The home for all your optimization work - locally.</p>
+
+    <article class="install" aria-label="Install command">
+      <p>Install</p>
+      <pre><code>{installCommand}</code></pre>
+    </article>
+
+    <div class="visual-stack">
+      <img
+        class="onboarding-shot"
+        src={`${base}tui-screens/onboarding.svg`}
+        alt="Rastion onboarding process screenshot"
+        loading="eager"
+      />
+    </div>
+  </section>
+
+  <style>
+    .hero {
+      width: min(980px, 100%);
+      margin: 0 auto;
+      display: grid;
+      gap: 1.1rem;
+      justify-items: center;
+      text-align: center;
+    }
+
+    .owl {
+      width: clamp(8.5rem, 23vw, 14.5rem);
+      height: auto;
+      filter: drop-shadow(0 16px 24px rgba(0, 0, 0, 0.45));
+      animation: owl-float 3.8s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    .catchphrase {
+      margin: 0;
+      font-family: 'Clash Display', sans-serif;
+      font-size: clamp(1.8rem, 5.8vw, 3.25rem);
+      line-height: 1.08;
+      letter-spacing: 0.02em;
+      color: var(--text-primary);
+    }
+
+    .visual-stack {
+      width: min(100%, 940px);
+      border: 1px solid var(--border-color);
+      border-radius: 18px;
+      padding: 0.8rem;
+      background: linear-gradient(145deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0));
+      box-shadow: var(--shadow-glow);
+      overflow: hidden;
+    }
+
+    .onboarding-shot {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 12px;
+      border: 1px solid var(--code-border);
+      background: var(--code-bg);
+    }
+
+    .install {
+      width: min(100%, 680px);
+      border: 1px solid var(--code-border);
+      border-radius: 16px;
+      padding: 0.8rem;
+      background: var(--code-bg);
+      text-align: left;
+    }
+
+    .install p {
+      margin: 0 0 0.42rem;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    pre {
+      margin: 0;
+      border: 1px solid var(--code-border);
+      border-radius: 10px;
+      overflow-x: auto;
+      padding: 0.75rem;
+      background: rgba(0, 0, 0, 0.24);
+    }
+
+    code {
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem;
+      color: var(--code-text);
+    }
+
+    @keyframes owl-float {
+      0% {
+        transform: translateY(0);
+      }
+      50% {
+        transform: translateY(-8px);
+      }
+      100% {
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .hero {
+        gap: 0.8rem;
+      }
+
+      .visual-stack {
+        padding: 0.58rem;
+      }
+
+      .install {
+        padding: 0.65rem;
+      }
+    }
+  </style>
+</Layout>

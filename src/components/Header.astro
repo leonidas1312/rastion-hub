@@ -1,0 +1,32 @@
+---
+import ThemeToggle from './ThemeToggle.astro';
+
+const base = import.meta.env.BASE_URL;
+const pathname = Astro.url.pathname;
+
+const navLinks = [
+  { href: `${base}`, label: 'Home' },
+  { href: `${base}solvers/`, label: 'Solvers' },
+  { href: `${base}benchmarks/`, label: 'Benchmarks' }
+];
+
+const normalizedPath = pathname.endsWith('/') ? pathname : `${pathname}/`;
+---
+
+<header class="site-header">
+  <nav aria-label="Primary navigation">
+    <ul>
+      {navLinks.map((link) => (
+        <li>
+          <a class={normalizedPath === link.href ? 'active' : undefined} href={link.href}>
+            {link.label}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </nav>
+
+  <div class="header-actions">
+    <ThemeToggle />
+  </div>
+</header>

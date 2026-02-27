@@ -1,0 +1,92 @@
+---
+interface Props {
+  id: number;
+  name: string;
+  category?: string | null;
+  owner: {
+    username: string;
+  };
+}
+
+const { id, name, category, owner } = Astro.props;
+const apiUrl = (import.meta.env.PUBLIC_HUB_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+---
+
+<div class="card-item">
+  <article class="hub-card">
+    <div class="card-content">
+      <h3>{name}</h3>
+      <p class="category-badge">{category || 'Uncategorized'}</p>
+    </div>
+    <a href={`${apiUrl}/problems/${id}/download`} target="_blank" rel="noreferrer">Download</a>
+  </article>
+  <p class="owner-name">@{owner.username}</p>
+</div>
+
+<style>
+  .card-item {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .hub-card {
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.04), transparent 55%), var(--bg-card);
+    padding: 0.85rem 0.9rem;
+    min-height: 78px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+  }
+
+  .card-content {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: clamp(1.02rem, 1.8vw, 1.2rem);
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+
+  .category-badge {
+    margin: 0;
+    width: fit-content;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 0.2rem 0.52rem;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  a {
+    flex: 0 0 auto;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    padding: 0.42rem 0.75rem;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #241a0c;
+    background: linear-gradient(135deg, var(--coral-bright), #ffd97d);
+    transition: transform 0.15s ease, filter 0.15s ease;
+  }
+
+  a:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.05);
+  }
+
+  .owner-name {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+  }
+</style>
