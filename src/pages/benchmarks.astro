@@ -15,15 +15,15 @@ import BenchmarkCard from '../components/BenchmarkCard.astro';
       <input id="benchmark-search" type="search" placeholder="Search by name" autocomplete="off" />
     </div>
     <div class="control-group">
-      <label for="benchmark-category">Category</label>
-      <select id="benchmark-category">
-        <option value="">All categories</option>
-        <option value="Combinatorial">Combinatorial</option>
-        <option value="Graph">Graph</option>
-        <option value="Portfolio">Portfolio</option>
-        <option value="Routing">Routing</option>
-        <option value="Scheduling">Scheduling</option>
-      </select>
+      <p class="pill-label">Category</p>
+      <div class="category-pills" role="group" aria-label="Filter benchmarks by category">
+        <button type="button" class="category-pill is-active" data-category="" aria-pressed="true">All</button>
+        <button type="button" class="category-pill" data-category="Combinatorial" aria-pressed="false">Combinatorial</button>
+        <button type="button" class="category-pill" data-category="Graph" aria-pressed="false">Graph</button>
+        <button type="button" class="category-pill" data-category="Portfolio" aria-pressed="false">Portfolio</button>
+        <button type="button" class="category-pill" data-category="Routing" aria-pressed="false">Routing</button>
+        <button type="button" class="category-pill" data-category="Scheduling" aria-pressed="false">Scheduling</button>
+      </div>
     </div>
     <p id="benchmark-status" role="status" aria-live="polite">Loading benchmarks...</p>
   </section>
@@ -40,7 +40,7 @@ import BenchmarkCard from '../components/BenchmarkCard.astro';
     import { API_URL, listBenchmarks } from '../lib/hub-api';
 
     const searchInput = document.getElementById('benchmark-search');
-    const categorySelect = document.getElementById('benchmark-category');
+    const categoryPills = Array.from(document.querySelectorAll('.category-pill'));
     const statusEl = document.getElementById('benchmark-status');
     const gridEl = document.getElementById('benchmarks-grid');
 
@@ -91,7 +91,8 @@ import BenchmarkCard from '../components/BenchmarkCard.astro';
       }
 
       const query = searchInput instanceof HTMLInputElement ? searchInput.value : '';
-      const category = categorySelect instanceof HTMLSelectElement ? categorySelect.value : '';
+      const activePill = categoryPills.find((pill) => pill.classList.contains('is-active'));
+      const category = activePill instanceof HTMLButtonElement ? activePill.dataset.category || '' : '';
       const categorySuffix = category ? ` in ${category}` : '';
 
       statusEl.textContent = 'Loading benchmarks...';
@@ -127,8 +128,14 @@ import BenchmarkCard from '../components/BenchmarkCard.astro';
       });
     }
 
-    if (categorySelect) {
-      categorySelect.addEventListener('change', () => {
+    for (const pill of categoryPills) {
+      pill.addEventListener('click', () => {
+        categoryPills.forEach((candidate) => {
+          candidate.classList.remove('is-active');
+          candidate.setAttribute('aria-pressed', 'false');
+        });
+        pill.classList.add('is-active');
+        pill.setAttribute('aria-pressed', 'true');
         refreshBenchmarks();
       });
     }
@@ -166,8 +173,7 @@ import BenchmarkCard from '../components/BenchmarkCard.astro';
       letter-spacing: 0.02em;
     }
 
-    #benchmark-search,
-    #benchmark-category {
+    #benchmark-search {
       width: min(100%, 36rem);
       border: 1px solid var(--border-color);
       border-radius: 12px;
@@ -175,6 +181,48 @@ import BenchmarkCard from '../components/BenchmarkCard.astro';
       color: var(--text-primary);
       font: inherit;
       padding: 0.7rem 0.8rem;
+    }
+
+    .pill-label {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.88rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .category-pills {
+      width: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .category-pill {
+      border: 1px solid var(--border-color);
+      border-radius: 999px;
+      padding: 0.34rem 0.75rem;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 0.86rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, background 0.2s ease;
+    }
+
+    .category-pill:hover {
+      color: var(--text-primary);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-1px);
+    }
+
+    .category-pill.is-active {
+      color: #ffffff;
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--accent), var(--cyan-bright));
+      box-shadow: 0 8px 16px rgba(123, 79, 242, 0.35);
     }
 
     #benchmark-status {

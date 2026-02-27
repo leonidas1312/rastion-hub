@@ -15,15 +15,15 @@ import SolverCard from '../components/SolverCard.astro';
       <input id="solver-search" type="search" placeholder="Search by name" autocomplete="off" />
     </div>
     <div class="control-group">
-      <label for="solver-category">Category</label>
-      <select id="solver-category">
-        <option value="">All categories</option>
-        <option value="MILP">MILP</option>
-        <option value="QP">QP</option>
-        <option value="QUBO">QUBO</option>
-        <option value="Heuristic">Heuristic</option>
-        <option value="Quantum">Quantum</option>
-      </select>
+      <p class="pill-label">Category</p>
+      <div class="category-pills" role="group" aria-label="Filter solvers by category">
+        <button type="button" class="category-pill is-active" data-category="" aria-pressed="true">All</button>
+        <button type="button" class="category-pill" data-category="MILP" aria-pressed="false">MILP</button>
+        <button type="button" class="category-pill" data-category="QP" aria-pressed="false">QP</button>
+        <button type="button" class="category-pill" data-category="QUBO" aria-pressed="false">QUBO</button>
+        <button type="button" class="category-pill" data-category="Heuristic" aria-pressed="false">Heuristic</button>
+        <button type="button" class="category-pill" data-category="Quantum" aria-pressed="false">Quantum</button>
+      </div>
     </div>
     <p id="solver-status" role="status" aria-live="polite">Loading solvers...</p>
   </section>
@@ -40,7 +40,7 @@ import SolverCard from '../components/SolverCard.astro';
     import { API_URL, listSolvers } from '../lib/hub-api';
 
     const searchInput = document.getElementById('solver-search');
-    const categorySelect = document.getElementById('solver-category');
+    const categoryPills = Array.from(document.querySelectorAll('.category-pill'));
     const statusEl = document.getElementById('solver-status');
     const gridEl = document.getElementById('solvers-grid');
 
@@ -91,7 +91,8 @@ import SolverCard from '../components/SolverCard.astro';
       }
 
       const query = searchInput instanceof HTMLInputElement ? searchInput.value : '';
-      const category = categorySelect instanceof HTMLSelectElement ? categorySelect.value : '';
+      const activePill = categoryPills.find((pill) => pill.classList.contains('is-active'));
+      const category = activePill instanceof HTMLButtonElement ? activePill.dataset.category || '' : '';
       const categorySuffix = category ? ` in ${category}` : '';
 
       statusEl.textContent = 'Loading solvers...';
@@ -127,8 +128,14 @@ import SolverCard from '../components/SolverCard.astro';
       });
     }
 
-    if (categorySelect) {
-      categorySelect.addEventListener('change', () => {
+    for (const pill of categoryPills) {
+      pill.addEventListener('click', () => {
+        categoryPills.forEach((candidate) => {
+          candidate.classList.remove('is-active');
+          candidate.setAttribute('aria-pressed', 'false');
+        });
+        pill.classList.add('is-active');
+        pill.setAttribute('aria-pressed', 'true');
         refreshSolvers();
       });
     }
@@ -166,8 +173,7 @@ import SolverCard from '../components/SolverCard.astro';
       letter-spacing: 0.02em;
     }
 
-    #solver-search,
-    #solver-category {
+    #solver-search {
       width: min(100%, 36rem);
       border: 1px solid var(--border-color);
       border-radius: 12px;
@@ -175,6 +181,48 @@ import SolverCard from '../components/SolverCard.astro';
       color: var(--text-primary);
       font: inherit;
       padding: 0.7rem 0.8rem;
+    }
+
+    .pill-label {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.88rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .category-pills {
+      width: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .category-pill {
+      border: 1px solid var(--border-color);
+      border-radius: 999px;
+      padding: 0.34rem 0.75rem;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 0.86rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, background 0.2s ease;
+    }
+
+    .category-pill:hover {
+      color: var(--text-primary);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-1px);
+    }
+
+    .category-pill.is-active {
+      color: #ffffff;
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--accent), var(--cyan-bright));
+      box-shadow: 0 8px 16px rgba(123, 79, 242, 0.35);
     }
 
     #solver-status {

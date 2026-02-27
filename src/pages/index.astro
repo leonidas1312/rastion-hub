@@ -2,7 +2,7 @@
 import Layout from '../layouts/Layout.astro';
 
 const base = import.meta.env.BASE_URL;
-const installCommand = 'pip install -U "rastion[tui]"';
+const installCommand = 'pip install rastion[tui]';
 ---
 
 <Layout title="Rastion Hub - Open Source Optimization Lab" description="Open source optimization lab with onboarding-first terminal workflow.">
@@ -11,19 +11,67 @@ const installCommand = 'pip install -U "rastion[tui]"';
     <p class="catchphrase">The home for all your optimization work - locally.</p>
 
     <article class="install" aria-label="Install command">
-      <p>Install</p>
-      <pre><code>{installCommand}</code></pre>
+      <p class="install-kicker">Get Started</p>
+      <div class="command-row">
+        <pre><code data-install-command>{installCommand}</code></pre>
+        <button type="button" class="copy-btn" data-copy-install aria-label="Copy install command">Copy</button>
+      </div>
+      <ul class="install-features">
+        <li>Open a terminal-first workflow for optimization projects.</li>
+        <li>Run and compare solvers with reproducible benchmark sets.</li>
+        <li>Use local tooling with zero cloud lock-in.</li>
+      </ul>
     </article>
-
-    <div class="visual-stack">
-      <img
-        class="onboarding-shot"
-        src={`${base}tui-screens/onboarding.svg`}
-        alt="Rastion onboarding process screenshot"
-        loading="eager"
-      />
-    </div>
   </section>
+
+  <script is:inline>
+    const copyButton = document.querySelector('[data-copy-install]');
+    const commandCode = document.querySelector('[data-install-command]');
+
+    async function copyInstallCommand() {
+      if (!(copyButton instanceof HTMLButtonElement) || !(commandCode instanceof HTMLElement)) {
+        return;
+      }
+
+      const command = commandCode.textContent?.trim();
+      if (!command) {
+        return;
+      }
+
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(command);
+        } else {
+          const helper = document.createElement('textarea');
+          helper.value = command;
+          helper.setAttribute('readonly', '');
+          helper.style.position = 'fixed';
+          helper.style.opacity = '0';
+          document.body.appendChild(helper);
+          helper.select();
+          document.execCommand('copy');
+          document.body.removeChild(helper);
+        }
+
+        const originalText = copyButton.textContent;
+        copyButton.textContent = 'Copied';
+        copyButton.classList.add('is-copied');
+        setTimeout(() => {
+          copyButton.textContent = originalText || 'Copy';
+          copyButton.classList.remove('is-copied');
+        }, 1500);
+      } catch {
+        copyButton.textContent = 'Failed';
+        setTimeout(() => {
+          copyButton.textContent = 'Copy';
+        }, 1500);
+      }
+    }
+
+    if (copyButton) {
+      copyButton.addEventListener('click', copyInstallCommand);
+    }
+  </script>
 
   <style>
     .hero {
@@ -52,35 +100,19 @@ const installCommand = 'pip install -U "rastion[tui]"';
       color: var(--text-primary);
     }
 
-    .visual-stack {
-      width: min(100%, 940px);
-      border: 1px solid var(--border-color);
-      border-radius: 18px;
-      padding: 0.8rem;
-      background: linear-gradient(145deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0));
-      box-shadow: var(--shadow-glow);
-      overflow: hidden;
-    }
-
-    .onboarding-shot {
-      display: block;
-      width: 100%;
-      height: auto;
-      border-radius: 12px;
-      border: 1px solid var(--code-border);
-      background: var(--code-bg);
-    }
-
     .install {
       width: min(100%, 680px);
-      border: 1px solid var(--code-border);
-      border-radius: 16px;
-      padding: 0.8rem;
-      background: var(--code-bg);
+      border: 1px solid rgba(167, 129, 255, 0.26);
+      border-radius: 18px;
+      padding: 1rem;
+      background:
+        linear-gradient(120deg, rgba(167, 129, 255, 0.16), rgba(255, 207, 92, 0.12) 55%, transparent),
+        var(--code-bg);
+      box-shadow: 0 16px 34px rgba(0, 0, 0, 0.35);
       text-align: left;
     }
 
-    .install p {
+    .install-kicker {
       margin: 0 0 0.42rem;
       color: var(--text-secondary);
       font-size: 0.9rem;
@@ -89,8 +121,15 @@ const installCommand = 'pip install -U "rastion[tui]"';
       text-transform: uppercase;
     }
 
+    .command-row {
+      display: flex;
+      align-items: stretch;
+      gap: 0.55rem;
+    }
+
     pre {
       margin: 0;
+      flex: 1;
       border: 1px solid var(--code-border);
       border-radius: 10px;
       overflow-x: auto;
@@ -98,10 +137,60 @@ const installCommand = 'pip install -U "rastion[tui]"';
       background: rgba(0, 0, 0, 0.24);
     }
 
+    .copy-btn {
+      flex: 0 0 auto;
+      min-width: 5.2rem;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+      padding: 0.7rem 0.85rem;
+      background: linear-gradient(135deg, var(--coral-bright), #ffd97d);
+      color: #1f190f;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s ease, filter 0.15s ease;
+    }
+
+    .copy-btn:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.05);
+    }
+
+    .copy-btn.is-copied {
+      background: linear-gradient(135deg, #66e6b0, #7ef9b5);
+    }
+
     code {
       font-family: 'Courier New', monospace;
       font-size: 0.9rem;
       color: var(--code-text);
+    }
+
+    .install-features {
+      margin: 0.9rem 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 0.46rem;
+      color: var(--text-secondary);
+      font-size: 0.93rem;
+    }
+
+    .install-features li {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+
+    .install-features li::before {
+      content: '';
+      flex: 0 0 auto;
+      width: 0.5rem;
+      height: 0.5rem;
+      margin-top: 0.43rem;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--coral-bright), var(--cyan-bright));
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
     }
 
     @keyframes owl-float {
@@ -121,12 +210,16 @@ const installCommand = 'pip install -U "rastion[tui]"';
         gap: 0.8rem;
       }
 
-      .visual-stack {
-        padding: 0.58rem;
-      }
-
       .install {
         padding: 0.65rem;
+      }
+
+      .command-row {
+        flex-direction: column;
+      }
+
+      .copy-btn {
+        width: 100%;
       }
     }
   </style>
