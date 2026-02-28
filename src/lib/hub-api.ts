@@ -36,14 +36,14 @@ type ListResponse<T> =
     };
 
 function defaultApiUrl(): string {
-  if (typeof window !== 'undefined') {
+  if (import.meta.env.DEV && typeof window !== 'undefined') {
     return `${window.location.protocol}//${window.location.hostname}:8000`;
   }
-  //return 'http://127.0.0.1:8000';
   return 'https://rastion-hub.onrender.com';
 }
 
 export const API_URL = (import.meta.env.PUBLIC_HUB_API_URL || defaultApiUrl()).replace(/\/$/, '');
+const API_TIMEOUT_MS = 25000;
 
 function extractErrorMessage(payload: unknown, fallback: string): string {
   if (!payload || typeof payload !== 'object') {
@@ -86,6 +86,30 @@ async function parseResponse<T>(response: Response, fallbackError: string): Prom
   return (await response.json()) as T;
 }
 
+async function fetchJsonWithTimeout<T>(url: string, fallbackError: string): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    return await parseResponse<T>(response, fallbackError);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`Hub API request timed out after ${Math.round(API_TIMEOUT_MS / 1000)}s.`);
+    }
+
+    if (error instanceof TypeError) {
+      throw new Error(
+        `Unable to reach hub API at ${API_URL}. Check backend availability and CORS settings.`
+      );
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function listBenchmarks(q?: string, category?: string): Promise<Benchmark[]> {
   const url = new URL(`${API_URL}/problems`);
   if (q && q.trim()) {
@@ -95,8 +119,10 @@ export async function listBenchmarks(q?: string, category?: string): Promise<Ben
     url.searchParams.set('category', category.trim());
   }
 
-  const response = await fetch(url.toString());
-  const data = await parseResponse<ListResponse<Benchmark>>(response, 'Unable to load benchmarks.');
+  const data = await fetchJsonWithTimeout<ListResponse<Benchmark>>(
+    url.toString(),
+    'Unable to load benchmarks.'
+  );
 
   return Array.isArray(data) ? data : data.items;
 }
@@ -110,8 +136,10 @@ export async function listSolvers(q?: string, category?: string): Promise<Solver
     url.searchParams.set('category', category.trim());
   }
 
-  const response = await fetch(url.toString());
-  const data = await parseResponse<ListResponse<Solver>>(response, 'Unable to load solvers.');
+  const data = await fetchJsonWithTimeout<ListResponse<Solver>>(
+    url.toString(),
+    'Unable to load solvers.'
+  );
 
   return Array.isArray(data) ? data : data.items;
 }

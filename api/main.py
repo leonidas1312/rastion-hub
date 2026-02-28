@@ -3,6 +3,7 @@ import shutil
 from html import escape as html_escape
 from datetime import datetime
 from pathlib import Path
+import os
 
 from fastapi import (
     Body,
@@ -42,14 +43,21 @@ SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 security = HTTPBearer(auto_error=False)
 app = FastAPI(title="Rastion Hub API", version="0.1.0")
 
+default_allow_origins = [
+    "http://localhost:4321",
+    "http://127.0.0.1:4321",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://leonidas1312.github.io",
+]
+raw_allow_origins = os.getenv("CORS_ALLOW_ORIGINS", "")
+configured_allow_origins = [origin.strip() for origin in raw_allow_origins.split(",") if origin.strip()]
+allow_origins = configured_allow_origins or default_allow_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:4321",
-        "http://127.0.0.1:4321",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=allow_origins,
+    allow_origin_regex=r"^https://[a-zA-Z0-9-]+\.github\.io$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -314,7 +322,10 @@ async def callback(
     github_token = await auth.exchange_oauth_code_for_token(code=code, redirect_uri=callback_url)
     github_user = await auth.fetch_github_user(github_token)
     user = auth.upsert_user_from_github(db, github_user)
-    return HTMLResponse(content=callback_success_html(github_token, user.username))
+    return HTMLResponse(
+        content=callback_success_html(github_token, user.username),
+        headers={"Content-Disposition": "inline"},
+    )
 
 
 @app.post("/auth/token", response_model=TokenVerificationResponse)
