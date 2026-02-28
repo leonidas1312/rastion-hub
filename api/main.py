@@ -3,6 +3,7 @@ import shutil
 from html import escape as html_escape
 from datetime import datetime
 from pathlib import Path
+import json
 import os
 
 from fastapi import (
@@ -28,17 +29,53 @@ from sqlalchemy.orm import Session, joinedload
 
 try:
     from . import auth, models
-    from .database import Base, engine, get_db
+    from .database import Base, SessionLocal, engine, get_db
 except ImportError:  # pragma: no cover
     import auth
     import models
-    from database import Base, engine, get_db
+    from database import Base, SessionLocal, engine, get_db
 
 APP_DIR = Path(__file__).resolve().parent
 STORAGE_DIR = APP_DIR / "storage"
 PROBLEMS_DIR = STORAGE_DIR / "problems"
 SOLVERS_DIR = STORAGE_DIR / "solvers"
 SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+PROBLEM_CATEGORY_RULES: list[tuple[str, str]] = [
+    ("calendar", "Scheduling"),
+    ("schedule", "Scheduling"),
+    ("planner", "Scheduling"),
+    ("planning", "Scheduling"),
+    ("timetable", "Scheduling"),
+    ("workload", "Scheduling"),
+    ("knapsack", "Combinatorial"),
+    ("set_cover", "Combinatorial"),
+    ("packing", "Combinatorial"),
+    ("maxcut", "Graph"),
+    ("graph", "Graph"),
+    ("portfolio", "Portfolio"),
+    ("tsp", "Routing"),
+    ("route", "Routing"),
+    ("vehicle", "Routing"),
+    ("facility", "Routing"),
+]
+
+SOLVER_CATEGORY_RULES: list[tuple[str, str]] = [
+    ("qubo", "QUBO"),
+    ("qaoa", "Quantum"),
+    ("quantum", "Quantum"),
+    ("neal", "QUBO"),
+    ("tabu", "Heuristic"),
+    ("grasp", "Heuristic"),
+    ("heuristic", "Heuristic"),
+    ("baseline", "Heuristic"),
+    ("highs", "MILP"),
+    ("ortools", "MILP"),
+    ("scip", "MILP"),
+    ("mip", "MILP"),
+    ("milp", "MILP"),
+    ("qp", "QP"),
+]
 
 security = HTTPBearer(auto_error=False)
 app = FastAPI(title="Rastion Hub API", version="0.1.0")
@@ -155,6 +192,7 @@ def ensure_category_columns() -> None:
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_category_columns()
+    backfill_missing_categories()
     PROBLEMS_DIR.mkdir(parents=True, exist_ok=True)
     SOLVERS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -169,6 +207,70 @@ def normalize_optional_text(value: str | None) -> str | None:
         return None
     cleaned = value.strip()
     return cleaned or None
+
+
+def parse_manifest(manifest: str | None) -> dict[str, object]:
+    raw = (manifest or "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def infer_category(item_type: str, name: str, description: str, manifest: dict[str, object] | None = None) -> str:
+    payload = manifest or {}
+
+    explicit = normalize_optional_text(str(payload.get("category", "") or ""))
+    if explicit:
+        return explicit
+
+    if item_type == "problem":
+        optimization_class = normalize_optional_text(str(payload.get("optimization_class", "") or ""))
+        if optimization_class:
+            lowered = optimization_class.lower()
+            if lowered in {"milp", "mip"}:
+                return "Scheduling"
+            if lowered == "qubo":
+                return "Graph"
+            if lowered == "qp":
+                return "Portfolio"
+
+    haystack = f"{name} {description}".lower()
+    rules = PROBLEM_CATEGORY_RULES if item_type == "problem" else SOLVER_CATEGORY_RULES
+    for token, category in rules:
+        if token in haystack:
+            return category
+
+    return "General"
+
+
+def backfill_missing_categories() -> None:
+    with SessionLocal() as db:
+        changed = 0
+
+        uncategorized_problems = (
+            db.query(models.Problem)
+            .filter(or_(models.Problem.category.is_(None), models.Problem.category == ""))
+            .all()
+        )
+        for problem in uncategorized_problems:
+            problem.category = infer_category("problem", problem.name, problem.description)
+            changed += 1
+
+        uncategorized_solvers = (
+            db.query(models.Solver)
+            .filter(or_(models.Solver.category.is_(None), models.Solver.category == ""))
+            .all()
+        )
+        for solver in uncategorized_solvers:
+            solver.category = infer_category("solver", solver.name, solver.description)
+            changed += 1
+
+        if changed:
+            db.commit()
 
 
 def build_archive_path(item_type: str, user_id: int, name: str, version: str) -> Path:
@@ -403,11 +505,18 @@ async def upload_problem(
     version: str = Form(..., min_length=1, max_length=60),
     description: str = Form("", max_length=5000),
     category: str | None = Form(None, max_length=120),
+    manifest: str | None = Form(None),
     file: UploadFile = File(...),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    normalized_category = normalize_optional_text(category)
+    manifest_payload = parse_manifest(manifest)
+    normalized_category = normalize_optional_text(category) or infer_category(
+        "problem",
+        name=name,
+        description=description,
+        manifest=manifest_payload,
+    )
     ensure_zip(file)
 
     existing = (
@@ -581,11 +690,18 @@ async def upload_solver(
     version: str = Form(..., min_length=1, max_length=60),
     description: str = Form("", max_length=5000),
     category: str | None = Form(None, max_length=120),
+    manifest: str | None = Form(None),
     file: UploadFile = File(...),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    normalized_category = normalize_optional_text(category)
+    manifest_payload = parse_manifest(manifest)
+    normalized_category = normalize_optional_text(category) or infer_category(
+        "solver",
+        name=name,
+        description=description,
+        manifest=manifest_payload,
+    )
     ensure_zip(file)
 
     existing = (

@@ -2,26 +2,70 @@
 import Layout from '../layouts/Layout.astro';
 
 const base = import.meta.env.BASE_URL;
-const installCommand = 'pip install rastion[tui]';
+const installCommand = 'pip install "rastion[tui]"';
+const initCommand = 'rastion init-agent --path .';
+const runCommand = 'rastion agent-run ./agent_requests/calendar_week_off_30m.json';
 ---
 
-<Layout title="Rastion Hub - Open Source Optimization Lab" description="Open source optimization lab with onboarding-first terminal workflow.">
-  <section class="hero" aria-label="Onboarding hero">
+<Layout title="Rastion Hub - Personal Optimization Lab + Community Plugins" description="Use Rastion as a personal optimization lab and publish decision plugins to the community hub.">
+  <section class="hero" aria-label="Rastion hero">
     <img class="owl" src={`${base}rastion-logo1-transparent.png`} alt="Rastion owl logo" />
-    <p class="catchphrase">The home for all your optimization work - locally.</p>
+    <p class="kicker">Local-first optimization lab</p>
+    <h1>Talk to your planning problems. Publish your decision plugins.</h1>
+    <p class="subhead">
+      Rastion lets you model real decisions locally, run solver plugins, and share reusable decision plugins with the community hub.
+    </p>
 
     <article class="install" aria-label="Install command">
-      <p class="install-kicker">Get Started</p>
+      <p class="install-kicker">Get started</p>
       <div class="command-row">
         <pre><code data-install-command>{installCommand}</code></pre>
         <button type="button" class="copy-btn" data-copy-install aria-label="Copy install command">Copy</button>
       </div>
-      <ul class="install-features">
-        <li>Open a terminal-first workflow for optimization projects.</li>
-        <li>Run and compare solvers with reproducible benchmark sets.</li>
-        <li>Use local tooling with zero cloud lock-in.</li>
-      </ul>
+      <div class="command-list" aria-label="Starter workflow">
+        <p><code>{initCommand}</code></p>
+        <p><code>{runCommand}</code></p>
+      </div>
     </article>
+  </section>
+
+  <section class="feature-grid" aria-label="Personal lab workflow">
+    <article class="feature-card">
+      <h2>1. Use It As Your Personal Lab</h2>
+      <p>
+        Capture your weekly constraints, hard rules, and preferences. Let your coding agent convert that into a decision model and run it locally.
+      </p>
+    </article>
+    <article class="feature-card">
+      <h2>2. Iterate Like Software</h2>
+      <p>
+        Adjust objective weights, constraints, and solver preferences. Compare outcomes and runtime across multiple solvers in a reproducible loop.
+      </p>
+    </article>
+    <article class="feature-card">
+      <h2>3. Keep Control Of Data</h2>
+      <p>
+        The optimization workflow runs on your machine. Use the hub to publish artifacts, not raw private planning data.
+      </p>
+    </article>
+  </section>
+
+  <section class="contribute" aria-label="Contribute decision plugins">
+    <h2>Contribute Decision Plugins To The Community</h2>
+    <p>
+      Package your model as a reusable decision plugin, publish it to Hub, and make it discoverable for others in the
+      <a href={`${base}decision-plugins/`}>Decision Plugins</a> catalog.
+    </p>
+    <ol>
+      <li>Build your plugin locally under `decision_plugins/&lt;name&gt;` with realistic instances.</li>
+      <li>Run and validate with `rastion agent-run` before publishing.</li>
+      <li>Authenticate to hub with `rastion login`.</li>
+      <li>Push via Hub flow, then verify it appears on the website catalog.</li>
+    </ol>
+    <p class="links">
+      <a href={`${base}decision-plugins/`}>Browse Decision Plugins</a>
+      <a href={`${base}solvers/`}>Browse Solvers</a>
+    </p>
   </section>
 
   <script is:inline>
@@ -78,7 +122,7 @@ const installCommand = 'pip install rastion[tui]';
       width: min(980px, 100%);
       margin: 0 auto;
       display: grid;
-      gap: 1.1rem;
+      gap: 0.9rem;
       justify-items: center;
       text-align: center;
     }
@@ -91,17 +135,34 @@ const installCommand = 'pip install rastion[tui]';
       pointer-events: none;
     }
 
-    .catchphrase {
+    .kicker {
+      margin: 0;
+      font-size: 0.86rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      font-weight: 700;
+    }
+
+    h1 {
       margin: 0;
       font-family: 'Clash Display', sans-serif;
-      font-size: clamp(1.8rem, 5.8vw, 3.25rem);
+      font-size: clamp(1.9rem, 5.8vw, 3.1rem);
       line-height: 1.08;
       letter-spacing: 0.02em;
       color: var(--text-primary);
+      max-width: 18ch;
+    }
+
+    .subhead {
+      margin: 0;
+      color: var(--text-secondary);
+      max-width: 66ch;
+      font-size: clamp(1rem, 2.2vw, 1.08rem);
     }
 
     .install {
-      width: min(100%, 680px);
+      width: min(100%, 760px);
       border: 1px solid rgba(167, 129, 255, 0.26);
       border-radius: 18px;
       padding: 1rem;
@@ -166,31 +227,84 @@ const installCommand = 'pip install rastion[tui]';
       color: var(--code-text);
     }
 
-    .install-features {
-      margin: 0.9rem 0 0;
-      padding: 0;
-      list-style: none;
+    .command-list {
+      margin-top: 0.75rem;
       display: grid;
-      gap: 0.46rem;
+      gap: 0.42rem;
+    }
+
+    .command-list p {
+      margin: 0;
+      padding: 0.52rem 0.65rem;
+      border-radius: 10px;
+      border: 1px solid var(--code-border);
+      background: rgba(0, 0, 0, 0.22);
+      overflow-x: auto;
+    }
+
+    .feature-grid {
+      margin-top: 2rem;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
+    .feature-card h2 {
+      margin: 0 0 0.4rem;
+      font-size: 1.15rem;
+    }
+
+    .feature-card p {
+      margin: 0;
       color: var(--text-secondary);
-      font-size: 0.93rem;
     }
 
-    .install-features li {
+    .contribute {
+      margin-top: 1.7rem;
+      border: 1px solid var(--border-color);
+      border-radius: 18px;
+      padding: 1.2rem;
+      background: linear-gradient(155deg, rgba(255, 255, 255, 0.03), transparent 55%), var(--bg-card);
+    }
+
+    .contribute h2 {
+      margin: 0 0 0.4rem;
+      font-size: clamp(1.2rem, 2.7vw, 1.6rem);
+    }
+
+    .contribute p {
+      margin: 0;
+      color: var(--text-secondary);
+    }
+
+    .contribute a {
+      color: var(--text-primary);
+      text-decoration: underline;
+      text-decoration-color: rgba(255, 255, 255, 0.3);
+      text-underline-offset: 0.15rem;
+    }
+
+    .contribute ol {
+      margin: 0.75rem 0 0;
+      padding-left: 1.2rem;
+      display: grid;
+      gap: 0.45rem;
+      color: var(--text-secondary);
+    }
+
+    .links {
+      margin-top: 0.9rem;
       display: flex;
-      align-items: flex-start;
-      gap: 0.5rem;
+      gap: 1rem;
+      flex-wrap: wrap;
     }
 
-    .install-features li::before {
-      content: '';
-      flex: 0 0 auto;
-      width: 0.5rem;
-      height: 0.5rem;
-      margin-top: 0.43rem;
-      border-radius: 999px;
-      background: linear-gradient(135deg, var(--coral-bright), var(--cyan-bright));
-      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+    .links a {
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 0.45rem 0.7rem;
+      text-decoration: none;
+      background: rgba(255, 255, 255, 0.02);
     }
 
     @keyframes owl-float {
@@ -205,15 +319,13 @@ const installCommand = 'pip install rastion[tui]';
       }
     }
 
+    @media (max-width: 900px) {
+      .feature-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
     @media (max-width: 640px) {
-      .hero {
-        gap: 0.8rem;
-      }
-
-      .install {
-        padding: 0.65rem;
-      }
-
       .command-row {
         flex-direction: column;
       }

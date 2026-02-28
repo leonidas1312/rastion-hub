@@ -1,49 +1,49 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import SolverCard from '../components/SolverCard.astro';
+import BenchmarkCard from '../components/BenchmarkCard.astro';
 ---
 
-<Layout title="Solvers | Rastion Hub" description="Browse optimization solvers from the Rastion Hub API.">
+<Layout title="Decision Plugins | Rastion Hub" description="Community decision plugins for real optimization workflows.">
   <section class="page-head">
-    <h1>Solvers</h1>
-    <p>Search and download solver packages from the hub registry.</p>
+    <h1>Decision Plugins</h1>
+    <p>Community-posted decision models you can install, adapt, and run in your local Rastion lab.</p>
   </section>
 
   <section class="controls">
     <div class="control-group">
-      <label for="solver-search" class="sr-only">Search solvers</label>
-      <input id="solver-search" type="search" placeholder="Search by name" autocomplete="off" />
+      <label for="plugin-search" class="sr-only">Search decision plugins</label>
+      <input id="plugin-search" type="search" placeholder="Search by name" autocomplete="off" />
     </div>
     <div class="control-group">
       <p class="pill-label">Category</p>
-      <div class="category-pills" role="group" aria-label="Filter solvers by category">
+      <div class="category-pills" role="group" aria-label="Filter decision plugins by category">
         <button type="button" class="category-pill is-active" data-category="" aria-pressed="true">All</button>
-        <button type="button" class="category-pill" data-category="MILP" aria-pressed="false">MILP</button>
-        <button type="button" class="category-pill" data-category="QP" aria-pressed="false">QP</button>
-        <button type="button" class="category-pill" data-category="QUBO" aria-pressed="false">QUBO</button>
-        <button type="button" class="category-pill" data-category="Heuristic" aria-pressed="false">Heuristic</button>
-        <button type="button" class="category-pill" data-category="Quantum" aria-pressed="false">Quantum</button>
+        <button type="button" class="category-pill" data-category="Scheduling" aria-pressed="false">Scheduling</button>
+        <button type="button" class="category-pill" data-category="Combinatorial" aria-pressed="false">Combinatorial</button>
+        <button type="button" class="category-pill" data-category="Graph" aria-pressed="false">Graph</button>
+        <button type="button" class="category-pill" data-category="Portfolio" aria-pressed="false">Portfolio</button>
+        <button type="button" class="category-pill" data-category="Routing" aria-pressed="false">Routing</button>
         <button type="button" class="category-pill" data-category="General" aria-pressed="false">General</button>
       </div>
     </div>
-    <p id="solver-status" role="status" aria-live="polite">Loading solvers...</p>
+    <p id="plugin-status" role="status" aria-live="polite">Loading decision plugins...</p>
   </section>
 
-  <section id="solvers-grid" class="grid"></section>
+  <section id="plugins-grid" class="grid"></section>
 
   <noscript>
     <section class="grid">
-      <SolverCard id={0} name="Enable JavaScript" owner={{ username: 'rastion-hub' }} />
+      <BenchmarkCard id={0} name="Enable JavaScript" owner={{ username: 'rastion-hub' }} />
     </section>
   </noscript>
 
   <script>
-    import { API_URL, listSolvers, resolveSolverCategory } from '../lib/hub-api';
+    import { API_URL, listBenchmarks, resolveBenchmarkCategory } from '../lib/hub-api';
 
-    const searchInput = document.getElementById('solver-search');
+    const searchInput = document.getElementById('plugin-search');
     const categoryPills = Array.from(document.querySelectorAll('.category-pill'));
-    const statusEl = document.getElementById('solver-status');
-    const gridEl = document.getElementById('solvers-grid');
+    const statusEl = document.getElementById('plugin-status');
+    const gridEl = document.getElementById('plugins-grid');
 
     function clearGrid() {
       if (gridEl) {
@@ -51,34 +51,34 @@ import SolverCard from '../components/SolverCard.astro';
       }
     }
 
-    function renderSolverCard(solver) {
+    function renderPluginCard(plugin) {
       const item = document.createElement('div');
       item.className = 'card-item';
 
       const card = document.createElement('article');
-      card.className = 'solver-card';
+      card.className = 'benchmark-card';
 
       const content = document.createElement('div');
       content.className = 'card-content';
 
       const title = document.createElement('h3');
       title.className = 'card-name';
-      title.textContent = solver.name;
+      title.textContent = plugin.name;
 
       const categoryBadge = document.createElement('span');
       categoryBadge.className = 'category-badge';
-      categoryBadge.textContent = resolveSolverCategory(solver);
+      categoryBadge.textContent = resolveBenchmarkCategory(plugin);
 
       const download = document.createElement('a');
       download.className = 'download-btn';
-      download.href = `${API_URL}/solvers/${solver.id}/download`;
+      download.href = `${API_URL}/problems/${plugin.id}/download`;
       download.target = '_blank';
       download.rel = 'noreferrer';
       download.textContent = 'Download';
 
       const owner = document.createElement('p');
       owner.className = 'card-owner';
-      owner.textContent = `@${solver.owner?.username || 'unknown'}`;
+      owner.textContent = `@${plugin.owner?.username || 'unknown'}`;
 
       content.append(title, categoryBadge);
       card.append(content, download);
@@ -86,7 +86,7 @@ import SolverCard from '../components/SolverCard.astro';
       return item;
     }
 
-    async function refreshSolvers() {
+    async function refreshPlugins() {
       if (!statusEl || !gridEl) {
         return;
       }
@@ -96,26 +96,26 @@ import SolverCard from '../components/SolverCard.astro';
       const category = activePill instanceof HTMLButtonElement ? activePill.dataset.category || '' : '';
       const categorySuffix = category ? ` in ${category}` : '';
 
-      statusEl.textContent = 'Loading solvers...';
+      statusEl.textContent = 'Loading decision plugins...';
       clearGrid();
 
       try {
-        const solvers = await listSolvers(query, category);
+        const plugins = await listBenchmarks(query, category);
 
-        if (solvers.length === 0) {
-          statusEl.textContent = `No solvers found${categorySuffix}.`;
+        if (plugins.length === 0) {
+          statusEl.textContent = `No decision plugins found${categorySuffix}.`;
           return;
         }
 
-        statusEl.textContent = `${solvers.length} solver${solvers.length === 1 ? '' : 's'} found${categorySuffix}.`;
+        statusEl.textContent = `${plugins.length} decision plugin${plugins.length === 1 ? '' : 's'} found${categorySuffix}.`;
 
         const fragment = document.createDocumentFragment();
-        for (const solver of solvers) {
-          fragment.appendChild(renderSolverCard(solver));
+        for (const plugin of plugins) {
+          fragment.appendChild(renderPluginCard(plugin));
         }
         gridEl.appendChild(fragment);
       } catch (error) {
-        statusEl.textContent = error instanceof Error ? error.message : 'Failed to load solvers.';
+        statusEl.textContent = error instanceof Error ? error.message : 'Failed to load decision plugins.';
       }
     }
 
@@ -124,7 +124,7 @@ import SolverCard from '../components/SolverCard.astro';
       searchInput.addEventListener('input', () => {
         clearTimeout(debounceId);
         debounceId = setTimeout(() => {
-          refreshSolvers();
+          refreshPlugins();
         }, 260);
       });
     }
@@ -137,11 +137,11 @@ import SolverCard from '../components/SolverCard.astro';
         });
         pill.classList.add('is-active');
         pill.setAttribute('aria-pressed', 'true');
-        refreshSolvers();
+        refreshPlugins();
       });
     }
 
-    refreshSolvers();
+    refreshPlugins();
   </script>
 
   <style>
@@ -174,7 +174,7 @@ import SolverCard from '../components/SolverCard.astro';
       letter-spacing: 0.02em;
     }
 
-    #solver-search {
+    #plugin-search {
       width: min(100%, 36rem);
       border: 1px solid var(--border-color);
       border-radius: 12px;
@@ -226,7 +226,7 @@ import SolverCard from '../components/SolverCard.astro';
       box-shadow: 0 8px 16px rgba(123, 79, 242, 0.35);
     }
 
-    #solver-status {
+    #plugin-status {
       margin: 0;
       color: var(--text-secondary);
       min-height: 1.35rem;
@@ -243,7 +243,7 @@ import SolverCard from '../components/SolverCard.astro';
       gap: 0.45rem;
     }
 
-    :global(.solver-card) {
+    :global(.benchmark-card) {
       border: 1px solid var(--border-color);
       border-radius: 14px;
       background: linear-gradient(150deg, rgba(255, 255, 255, 0.04), transparent 55%), var(--bg-card);

@@ -26,6 +26,36 @@ export interface Solver {
   owner: User;
 }
 
+const BENCHMARK_CATEGORY_RULES: Array<[string, string]> = [
+  ['calendar', 'Scheduling'],
+  ['schedule', 'Scheduling'],
+  ['planner', 'Scheduling'],
+  ['planning', 'Scheduling'],
+  ['knapsack', 'Combinatorial'],
+  ['set_cover', 'Combinatorial'],
+  ['maxcut', 'Graph'],
+  ['graph', 'Graph'],
+  ['portfolio', 'Portfolio'],
+  ['tsp', 'Routing'],
+  ['route', 'Routing'],
+  ['vehicle', 'Routing']
+];
+
+const SOLVER_CATEGORY_RULES: Array<[string, string]> = [
+  ['qubo', 'QUBO'],
+  ['qaoa', 'Quantum'],
+  ['quantum', 'Quantum'],
+  ['tabu', 'Heuristic'],
+  ['grasp', 'Heuristic'],
+  ['baseline', 'Heuristic'],
+  ['highs', 'MILP'],
+  ['ortools', 'MILP'],
+  ['scip', 'MILP'],
+  ['mip', 'MILP'],
+  ['milp', 'MILP'],
+  ['qp', 'QP']
+];
+
 type ListResponse<T> =
   | T[]
   | {
@@ -44,6 +74,41 @@ function defaultApiUrl(): string {
 
 export const API_URL = (import.meta.env.PUBLIC_HUB_API_URL || defaultApiUrl()).replace(/\/$/, '');
 const API_TIMEOUT_MS = 25000;
+
+function normalizeCategory(value?: string | null): string | null {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : null;
+}
+
+export function resolveBenchmarkCategory(benchmark: Benchmark): string {
+  const explicit = normalizeCategory(benchmark.category);
+  if (explicit) {
+    return explicit;
+  }
+
+  const haystack = `${benchmark.name} ${benchmark.description || ''}`.toLowerCase();
+  for (const [token, category] of BENCHMARK_CATEGORY_RULES) {
+    if (haystack.includes(token)) {
+      return category;
+    }
+  }
+  return 'General';
+}
+
+export function resolveSolverCategory(solver: Solver): string {
+  const explicit = normalizeCategory(solver.category);
+  if (explicit) {
+    return explicit;
+  }
+
+  const haystack = `${solver.name} ${solver.description || ''}`.toLowerCase();
+  for (const [token, category] of SOLVER_CATEGORY_RULES) {
+    if (haystack.includes(token)) {
+      return category;
+    }
+  }
+  return 'General';
+}
 
 function extractErrorMessage(payload: unknown, fallback: string): string {
   if (!payload || typeof payload !== 'object') {
