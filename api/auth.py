@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 from dotenv import load_dotenv
@@ -18,7 +19,10 @@ load_dotenv()
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-this")
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080"))
+GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
+DEFAULT_GITHUB_SCOPE = "read:user"
 
 
 def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:
@@ -34,6 +38,81 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
         return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except JWTError:
         return None
+
+
+def _required_env(name: str) -> str:
+    value = os.getenv(name)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Server misconfiguration: {name} is not set.",
+    )
+
+
+def github_client_id() -> str:
+    return _required_env("GITHUB_CLIENT_ID")
+
+
+def github_client_secret() -> str:
+    return _required_env("GITHUB_CLIENT_SECRET")
+
+
+def build_github_oauth_url(
+    *,
+    redirect_uri: str,
+    state: str | None = None,
+    scope: str = DEFAULT_GITHUB_SCOPE,
+) -> str:
+    params = {
+        "client_id": github_client_id(),
+        "redirect_uri": redirect_uri,
+        "scope": scope,
+    }
+    if state:
+        params["state"] = state
+
+    return f"{GITHUB_AUTHORIZE_URL}?{urlencode(params)}"
+
+
+async def exchange_oauth_code_for_token(*, code: str, redirect_uri: str) -> str:
+    payload = {
+        "client_id": github_client_id(),
+        "client_secret": github_client_secret(),
+        "code": code,
+        "redirect_uri": redirect_uri,
+    }
+    headers = {"Accept": "application/json"}
+
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        response = await client.post(GITHUB_TOKEN_URL, data=payload, headers=headers)
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="GitHub token endpoint returned an invalid response.",
+        ) from exc
+
+    if response.status_code != status.HTTP_200_OK:
+        description = data.get("error_description") if isinstance(data, dict) else None
+        detail = description if isinstance(description, str) and description else "OAuth exchange failed."
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+    if isinstance(data, dict) and data.get("error"):
+        description = data.get("error_description")
+        detail = description if isinstance(description, str) and description else "OAuth exchange failed."
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+    token = data.get("access_token") if isinstance(data, dict) else None
+    if not isinstance(token, str) or not token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="GitHub OAuth response did not include an access token.",
+        )
+    return token.strip()
 
 
 async def fetch_github_user(token: str) -> dict[str, Any]:
@@ -105,9 +184,14 @@ def user_from_jwt(db: Session, token: str) -> "models.User | None":
 
 async def authenticate_token(db: Session, token: str) -> "models.User":
     user = user_from_jwt(db, token)
+    if user:
+        return user
+
+    github_user = await fetch_github_user(token)
+    user = upsert_user_from_github(db, github_user)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired session token.",
+            detail="Invalid or expired authentication token.",
         )
     return user

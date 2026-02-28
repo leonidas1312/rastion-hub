@@ -1,0 +1,53 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+const code = Astro.url.searchParams.get('code');
+const apiBase = (import.meta.env.PUBLIC_HUB_API_URL || 'https://rastion-hub.onrender.com').replace(/\/$/, '');
+const callbackUrl = code ? `${apiBase}/auth/callback?code=${encodeURIComponent(code)}` : `${apiBase}/auth/login`;
+---
+
+<Layout title="Authorization Callback">
+  <section class="callback">
+    <h1>Authorization Callback</h1>
+    {code ? (
+      <p>Redirecting you to the hub authorization page...</p>
+    ) : (
+      <p>No authorization code was provided. Start login from your TUI and try again.</p>
+    )}
+    <p><a href={callbackUrl}>Open hub authorization page</a></p>
+  </section>
+</Layout>
+
+<script is:inline define:vars={{ callbackUrl, code }}>
+  if (code) {
+    window.location.replace(callbackUrl);
+  }
+</script>
+
+<style>
+  .callback {
+    min-height: 52vh;
+    display: grid;
+    align-content: center;
+    gap: 0.7rem;
+    max-width: 700px;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .callback h1 {
+    margin: 0;
+  }
+
+  .callback p {
+    margin: 0;
+    color: var(--text-secondary);
+  }
+
+  .callback a {
+    color: var(--text-primary);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+</style>

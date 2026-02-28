@@ -1,5 +1,6 @@
 import re
 import shutil
+from html import escape as html_escape
 from datetime import datetime
 from pathlib import Path
 
@@ -12,12 +13,13 @@ from fastapi import (
     HTTPException,
     Path as ApiPath,
     Query,
+    Request,
     Response,
     UploadFile,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import inspect, or_, text
@@ -108,6 +110,15 @@ class LoginResponse(BaseModel):
     user: UserOut
 
 
+class OAuthLoginUrlResponse(BaseModel):
+    url: str
+
+
+class TokenVerificationResponse(BaseModel):
+    valid: bool
+    user: UserOut | None = None
+
+
 class RatePayload(BaseModel):
     rating: float = Field(ge=0.0, le=5.0)
 
@@ -195,6 +206,86 @@ def trim_empty_parents(path: Path, stop: Path) -> None:
         current = current.parent
 
 
+def callback_success_html(token: str, username: str) -> str:
+    token_html = html_escape(token)
+    username_html = html_escape(username)
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rastion Authorization</title>
+    <style>
+      body {{
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        color: #0f172a;
+        background: linear-gradient(140deg, #f8fafc, #e2e8f0);
+      }}
+      .shell {{
+        max-width: 720px;
+        margin: 4rem auto;
+        background: white;
+        border-radius: 14px;
+        border: 1px solid #dbe3ef;
+        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.08);
+        padding: 1.6rem;
+      }}
+      h1 {{
+        margin: 0 0 0.8rem;
+        font-size: 1.5rem;
+      }}
+      p {{
+        margin: 0.7rem 0;
+      }}
+      pre {{
+        margin: 0.9rem 0;
+        padding: 0.85rem;
+        border-radius: 10px;
+        background: #0f172a;
+        color: #f8fafc;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }}
+      button {{
+        border: 0;
+        border-radius: 10px;
+        background: #0f766e;
+        color: white;
+        padding: 0.6rem 1rem;
+        font-size: 0.95rem;
+        cursor: pointer;
+      }}
+      .hint {{
+        color: #334155;
+      }}
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <h1>Authorization successful</h1>
+      <p>Signed in as <strong>{username_html}</strong>.</p>
+      <p>Copy this token and paste it into your TUI:</p>
+      <pre id="token">{token_html}</pre>
+      <button id="copy-btn" type="button">Copy token</button>
+      <p class="hint">After copying, return to the terminal and continue login.</p>
+    </main>
+    <script>
+      document.getElementById("copy-btn").addEventListener("click", async () => {{
+        const token = document.getElementById("token").textContent || "";
+        try {{
+          await navigator.clipboard.writeText(token);
+          document.getElementById("copy-btn").textContent = "Copied";
+        }} catch {{
+          document.getElementById("copy-btn").textContent = "Copy failed";
+        }}
+      }});
+    </script>
+  </body>
+</html>"""
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: Session = Depends(get_db),
@@ -207,8 +298,42 @@ async def get_current_user(
     return await auth.authenticate_token(db, credentials.credentials)
 
 
+@app.get("/auth/login", response_model=OAuthLoginUrlResponse)
+async def login(request: Request):
+    callback_url = str(request.url_for("callback"))
+    return OAuthLoginUrlResponse(url=auth.build_github_oauth_url(redirect_uri=callback_url))
+
+
+@app.get("/auth/callback", response_class=HTMLResponse)
+async def callback(
+    request: Request,
+    code: str = Query(..., min_length=4),
+    db: Session = Depends(get_db),
+):
+    callback_url = str(request.url_for("callback"))
+    github_token = await auth.exchange_oauth_code_for_token(code=code, redirect_uri=callback_url)
+    github_user = await auth.fetch_github_user(github_token)
+    user = auth.upsert_user_from_github(db, github_user)
+    return HTMLResponse(content=callback_success_html(github_token, user.username))
+
+
+@app.post("/auth/token", response_model=TokenVerificationResponse)
+async def verify_token(token: str = Body(..., embed=True), db: Session = Depends(get_db)):
+    raw_token = token.strip()
+    if not raw_token:
+        return TokenVerificationResponse(valid=False, user=None)
+
+    try:
+        user = await auth.authenticate_token(db, raw_token)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            return TokenVerificationResponse(valid=False, user=None)
+        raise
+    return TokenVerificationResponse(valid=True, user=user)
+
+
 @app.post("/auth/login", response_model=LoginResponse)
-async def login(
+async def login_with_bearer(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: Session = Depends(get_db),
 ):
