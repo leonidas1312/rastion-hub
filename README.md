@@ -22,11 +22,48 @@ The app is served with a repository base path (default: `/rastion-hub`).
 `api/` supports environment-driven configuration for production:
 
 - `DATABASE_URL` (default: local SQLite file)
-- `RASTION_HUB_STORAGE_DIR` (default: `api/storage`)
+- `ARCHIVE_BACKEND` (`filesystem` or `db`, default: `filesystem`)
+- `RASTION_HUB_STORAGE_DIR` (default: `api/storage`, used with `ARCHIVE_BACKEND=filesystem`)
 - `MAX_UPLOAD_BYTES` (default: `26214400`)
 - `MAX_ZIP_ENTRIES` (default: `2000`)
 - `MAX_ZIP_UNCOMPRESSED_BYTES` (default: `262144000`)
 - `CORS_ALLOW_ORIGINS` (comma-separated)
+
+## Render Setup (API)
+
+Use these settings for the FastAPI service in Render:
+
+- Runtime: `Python`
+- Root Directory: `api`
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+
+Required env vars:
+
+- `JWT_SECRET`
+- `GITHUB_CLIENT_ID`
+- `GITHUB_CLIENT_SECRET`
+- `CORS_ALLOW_ORIGINS`
+
+### Free plan (recommended config)
+
+Free web services do not provide persistent disks. Use database-backed archive storage:
+
+- `DATABASE_URL=<your postgres connection string>`
+- `ARCHIVE_BACKEND=db`
+
+Notes:
+
+- This stores uploaded ZIP payloads inside the database (`archive_blobs` table).
+- Do not use SQLite on free instances if you need data persistence across deploys/restarts.
+
+### Paid plan (filesystem config)
+
+If you have a persistent disk attached:
+
+- `ARCHIVE_BACKEND=filesystem`
+- `RASTION_HUB_STORAGE_DIR=/var/data/storage` (or your mount path)
+- `DATABASE_URL=<postgres connection string>`
 
 ## Build
 

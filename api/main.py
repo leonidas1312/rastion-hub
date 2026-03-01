@@ -62,6 +62,10 @@ SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 MAX_UPLOAD_BYTES = _int_env("MAX_UPLOAD_BYTES", 25 * 1024 * 1024)
 MAX_ZIP_ENTRIES = _int_env("MAX_ZIP_ENTRIES", 2000)
 MAX_ZIP_UNCOMPRESSED_BYTES = _int_env("MAX_ZIP_UNCOMPRESSED_BYTES", 250 * 1024 * 1024)
+SUPPORTED_ARCHIVE_BACKENDS = {"filesystem", "db"}
+raw_archive_backend = os.getenv("ARCHIVE_BACKEND", "filesystem").strip().lower()
+ARCHIVE_BACKEND = raw_archive_backend if raw_archive_backend in SUPPORTED_ARCHIVE_BACKENDS else "filesystem"
+DB_ARCHIVE_PREFIX = "db://"
 
 PROBLEM_CATEGORY_RULES: list[tuple[str, str]] = [
     ("calendar", "Scheduling"),
@@ -215,8 +219,9 @@ def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_category_columns()
     backfill_missing_categories()
-    PROBLEMS_DIR.mkdir(parents=True, exist_ok=True)
-    SOLVERS_DIR.mkdir(parents=True, exist_ok=True)
+    if ARCHIVE_BACKEND == "filesystem":
+        PROBLEMS_DIR.mkdir(parents=True, exist_ok=True)
+        SOLVERS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def sanitize_name(raw: str) -> str:
@@ -300,6 +305,11 @@ def build_archive_path(item_type: str, user_id: int, name: str, version: str) ->
     return base / str(user_id) / sanitize_name(name) / f"{sanitize_name(version)}.zip"
 
 
+def build_archive_blob_key(item_type: str, user_id: int, name: str, version: str) -> str:
+    item = "problems" if item_type == "problems" else "solvers"
+    return f"{item}/{user_id}/{sanitize_name(name)}/{sanitize_name(version)}.zip"
+
+
 def ensure_zip(upload: UploadFile) -> None:
     filename = upload.filename or ""
     if Path(filename).suffix.lower() != ".zip":
@@ -371,13 +381,61 @@ def persist_upload(upload: UploadFile, destination: Path) -> None:
         shutil.copyfileobj(upload.file, out_file)
 
 
+def persist_upload_to_db(upload: UploadFile, archive_key: str, db: Session) -> None:
+    upload.file.seek(0)
+    payload = upload.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(payload) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Archive exceeds max allowed size ({MAX_UPLOAD_BYTES} bytes).",
+        )
+
+    existing = db.query(models.ArchiveBlob).filter(models.ArchiveBlob.key == archive_key).first()
+    if existing is None:
+        existing = models.ArchiveBlob(key=archive_key, data=payload, created_at=datetime.utcnow())
+    else:
+        existing.data = payload
+        existing.created_at = datetime.utcnow()
+    db.add(existing)
+
+
 def archive_path_from_record(record_path: str | None) -> Path | None:
     if not record_path:
+        return None
+    if record_path.startswith(DB_ARCHIVE_PREFIX):
         return None
     candidate = Path(record_path).expanduser()
     if not candidate.is_absolute():
         candidate = APP_DIR / candidate
     return candidate if candidate.exists() else None
+
+
+def archive_key_from_record(record_path: str | None) -> str | None:
+    if not record_path or not record_path.startswith(DB_ARCHIVE_PREFIX):
+        return None
+    key = record_path[len(DB_ARCHIVE_PREFIX) :].strip()
+    return key or None
+
+
+def archive_blob_bytes(db: Session, archive_key: str | None) -> bytes | None:
+    if not archive_key:
+        return None
+    blob = db.query(models.ArchiveBlob).filter(models.ArchiveBlob.key == archive_key).first()
+    if blob is None or blob.data is None:
+        return None
+    return bytes(blob.data)
+
+
+def remove_archive_blob(db: Session, record_path: str | None) -> bool:
+    archive_key = archive_key_from_record(record_path)
+    if not archive_key:
+        return False
+    deleted = (
+        db.query(models.ArchiveBlob)
+        .filter(models.ArchiveBlob.key == archive_key)
+        .delete(synchronize_session=False)
+    )
+    return bool(deleted)
 
 
 def remove_file_if_exists(path: Path | None) -> None:
@@ -616,6 +674,10 @@ async def upload_problem(
         )
 
     archive_path = build_archive_path("problems", current_user.id, name, version)
+    archive_blob_key = build_archive_blob_key("problems", current_user.id, name, version)
+    archive_record_path = (
+        f"{DB_ARCHIVE_PREFIX}{archive_blob_key}" if ARCHIVE_BACKEND == "db" else str(archive_path.resolve())
+    )
 
     problem = models.Problem(
         owner_id=current_user.id,
@@ -627,7 +689,10 @@ async def upload_problem(
     )
 
     try:
-        persist_upload(file, archive_path)
+        if ARCHIVE_BACKEND == "db":
+            persist_upload_to_db(file, archive_blob_key, db)
+        else:
+            persist_upload(file, archive_path)
 
         db.add(problem)
         db.flush()
@@ -636,14 +701,15 @@ async def upload_problem(
             problem_id=problem.id,
             version=version,
             description=description,
-            file_path=str(archive_path.resolve()),
+            file_path=archive_record_path,
             created_at=datetime.utcnow(),
         )
         db.add(version_record)
         db.commit()
     except Exception:
         db.rollback()
-        remove_file_if_exists(archive_path)
+        if ARCHIVE_BACKEND == "filesystem":
+            remove_file_if_exists(archive_path)
         raise
 
     db.refresh(problem)
@@ -686,12 +752,16 @@ def download_problem(problem_id: int, db: Session = Depends(get_db)):
         .first()
     )
 
-    archive_path = archive_path_from_record(version_record.file_path if version_record else None)
-    if archive_path is None:
-        archive_path = build_archive_path("problems", problem.owner_id, problem.name, problem.version)
+    record_path = version_record.file_path if version_record else None
+    archive_key = archive_key_from_record(record_path)
+    archive_bytes = archive_blob_bytes(db, archive_key)
+    archive_path = archive_path_from_record(record_path)
 
-    if not archive_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found.")
+    if archive_bytes is None:
+        if archive_path is None:
+            archive_path = build_archive_path("problems", problem.owner_id, problem.name, problem.version)
+        if not archive_path.exists():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found.")
 
     db.query(models.Problem).filter(models.Problem.id == problem.id).update(
         {models.Problem.download_count: models.Problem.download_count + 1},
@@ -700,6 +770,12 @@ def download_problem(problem_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     filename = f"{sanitize_name(problem.name)}-{sanitize_name(problem.version)}.zip"
+    if archive_bytes is not None:
+        return Response(
+            content=archive_bytes,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     return FileResponse(path=archive_path, media_type="application/zip", filename=filename)
 
 
@@ -724,6 +800,10 @@ def delete_problem(
     fallback_archive = build_archive_path("problems", problem.owner_id, problem.name, problem.version)
     removed_any = False
     for version in problem.versions:
+        removed_blob = remove_archive_blob(db, version.file_path)
+        if removed_blob:
+            removed_any = True
+            continue
         version_path = archive_path_from_record(version.file_path)
         remove_file_if_exists(version_path)
         removed_any = removed_any or bool(version_path)
@@ -806,6 +886,10 @@ async def upload_solver(
         )
 
     archive_path = build_archive_path("solvers", current_user.id, name, version)
+    archive_blob_key = build_archive_blob_key("solvers", current_user.id, name, version)
+    archive_record_path = (
+        f"{DB_ARCHIVE_PREFIX}{archive_blob_key}" if ARCHIVE_BACKEND == "db" else str(archive_path.resolve())
+    )
 
     solver = models.Solver(
         owner_id=current_user.id,
@@ -817,7 +901,10 @@ async def upload_solver(
     )
 
     try:
-        persist_upload(file, archive_path)
+        if ARCHIVE_BACKEND == "db":
+            persist_upload_to_db(file, archive_blob_key, db)
+        else:
+            persist_upload(file, archive_path)
 
         db.add(solver)
         db.flush()
@@ -826,14 +913,15 @@ async def upload_solver(
             solver_id=solver.id,
             version=version,
             description=description,
-            file_path=str(archive_path.resolve()),
+            file_path=archive_record_path,
             created_at=datetime.utcnow(),
         )
         db.add(version_record)
         db.commit()
     except Exception:
         db.rollback()
-        remove_file_if_exists(archive_path)
+        if ARCHIVE_BACKEND == "filesystem":
+            remove_file_if_exists(archive_path)
         raise
 
     db.refresh(solver)
@@ -874,12 +962,16 @@ def download_solver(solver_id: int, db: Session = Depends(get_db)):
         .first()
     )
 
-    archive_path = archive_path_from_record(version_record.file_path if version_record else None)
-    if archive_path is None:
-        archive_path = build_archive_path("solvers", solver.owner_id, solver.name, solver.version)
+    record_path = version_record.file_path if version_record else None
+    archive_key = archive_key_from_record(record_path)
+    archive_bytes = archive_blob_bytes(db, archive_key)
+    archive_path = archive_path_from_record(record_path)
 
-    if not archive_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found.")
+    if archive_bytes is None:
+        if archive_path is None:
+            archive_path = build_archive_path("solvers", solver.owner_id, solver.name, solver.version)
+        if not archive_path.exists():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found.")
 
     db.query(models.Solver).filter(models.Solver.id == solver.id).update(
         {models.Solver.download_count: models.Solver.download_count + 1},
@@ -888,6 +980,12 @@ def download_solver(solver_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     filename = f"{sanitize_name(solver.name)}-{sanitize_name(solver.version)}.zip"
+    if archive_bytes is not None:
+        return Response(
+            content=archive_bytes,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     return FileResponse(path=archive_path, media_type="application/zip", filename=filename)
 
 
@@ -911,6 +1009,10 @@ def delete_solver(
     fallback_archive = build_archive_path("solvers", solver.owner_id, solver.name, solver.version)
     removed_any = False
     for version in solver.versions:
+        removed_blob = remove_archive_blob(db, version.file_path)
+        if removed_blob:
+            removed_any = True
+            continue
         version_path = archive_path_from_record(version.file_path)
         remove_file_if_exists(version_path)
         removed_any = removed_any or bool(version_path)

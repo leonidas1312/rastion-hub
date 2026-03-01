@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String
 from sqlalchemy.orm import relationship
 
 try:
@@ -91,3 +91,11 @@ class SolverVersion(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     solver = relationship("Solver", back_populates="versions")
+
+
+class ArchiveBlob(Base):
+    __tablename__ = "archive_blobs"
+
+    key = Column(String, primary_key=True, index=True)
+    data = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
