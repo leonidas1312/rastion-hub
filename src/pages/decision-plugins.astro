@@ -1,6 +1,6 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import BenchmarkCard from '../components/BenchmarkCard.astro';
+import DecisionPluginCard from '../components/DecisionPluginCard.astro';
 ---
 
 <Layout title="Decision Plugins | Rastion Hub" description="Community decision plugins for real optimization workflows.">
@@ -33,12 +33,12 @@ import BenchmarkCard from '../components/BenchmarkCard.astro';
 
   <noscript>
     <section class="grid">
-      <BenchmarkCard id={0} name="Enable JavaScript" owner={{ username: 'rastion-hub' }} />
+      <DecisionPluginCard id={0} name="Enable JavaScript" owner={{ username: 'rastion-hub' }} />
     </section>
   </noscript>
 
   <script>
-    import { API_URL, listBenchmarks, resolveBenchmarkCategory } from '../lib/hub-api';
+    import { API_URL, listDecisionPlugins, resolveDecisionPluginCategory } from '../lib/hub-api';
 
     const searchInput = document.getElementById('plugin-search');
     const categoryPills = Array.from(document.querySelectorAll('.category-pill'));
@@ -56,7 +56,7 @@ import BenchmarkCard from '../components/BenchmarkCard.astro';
       item.className = 'card-item';
 
       const card = document.createElement('article');
-      card.className = 'benchmark-card';
+      card.className = 'plugin-card';
 
       const content = document.createElement('div');
       content.className = 'card-content';
@@ -67,11 +67,11 @@ import BenchmarkCard from '../components/BenchmarkCard.astro';
 
       const categoryBadge = document.createElement('span');
       categoryBadge.className = 'category-badge';
-      categoryBadge.textContent = resolveBenchmarkCategory(plugin);
+      categoryBadge.textContent = resolveDecisionPluginCategory(plugin);
 
       const download = document.createElement('a');
       download.className = 'download-btn';
-      download.href = `${API_URL}/problems/${plugin.id}/download`;
+      download.href = `${API_URL}/decision-plugins/${plugin.id}/download`;
       download.target = '_blank';
       download.rel = 'noreferrer';
       download.textContent = 'Download';
@@ -100,7 +100,7 @@ import BenchmarkCard from '../components/BenchmarkCard.astro';
       clearGrid();
 
       try {
-        const plugins = await listBenchmarks(query, category);
+        const plugins = await listDecisionPlugins(query, category);
 
         if (plugins.length === 0) {
           statusEl.textContent = `No decision plugins found${categorySuffix}.`;
@@ -243,7 +243,7 @@ import BenchmarkCard from '../components/BenchmarkCard.astro';
       gap: 0.45rem;
     }
 
-    :global(.benchmark-card) {
+    :global(.plugin-card) {
       border: 1px solid var(--border-color);
       border-radius: 14px;
       background: linear-gradient(150deg, rgba(255, 255, 255, 0.04), transparent 55%), var(--bg-card);

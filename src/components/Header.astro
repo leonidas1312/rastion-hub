@@ -6,9 +6,7 @@ const pathname = Astro.url.pathname;
 
 const navLinks = [
   { href: `${base}`, label: 'Home' },
-  { href: `${base}decision-plugins/`, label: 'Decision Plugins' },
-  { href: `${base}solvers/`, label: 'Solvers' },
-  { href: `${base}benchmarks/`, label: 'Benchmarks' }
+  { href: `${base}decision-plugins/`, label: 'Decision Plugins' }
 ];
 
 const normalizedPath = pathname.endsWith('/') ? pathname : `${pathname}/`;

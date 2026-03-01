@@ -227,7 +227,7 @@ def infer_category(item_type: str, name: str, description: str, manifest: dict[s
     if explicit:
         return explicit
 
-    if item_type == "problem":
+    if item_type in {"problem", "decision_plugin"}:
         optimization_class = normalize_optional_text(str(payload.get("optimization_class", "") or ""))
         if optimization_class:
             lowered = optimization_class.lower()
@@ -239,7 +239,7 @@ def infer_category(item_type: str, name: str, description: str, manifest: dict[s
                 return "Portfolio"
 
     haystack = f"{name} {description}".lower()
-    rules = PROBLEM_CATEGORY_RULES if item_type == "problem" else SOLVER_CATEGORY_RULES
+    rules = PROBLEM_CATEGORY_RULES if item_type in {"problem", "decision_plugin"} else SOLVER_CATEGORY_RULES
     for token, category in rules:
         if token in haystack:
             return category
@@ -467,6 +467,7 @@ async def me(current_user: models.User = Depends(get_current_user)):
     return current_user
 
 
+@app.get("/decision-plugins", response_model=ProblemListResponse)
 @app.get("/problems", response_model=ProblemListResponse)
 def list_problems(
     q: str | None = Query(default=None),
@@ -499,6 +500,7 @@ def list_problems(
     return ProblemListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
+@app.post("/decision-plugins", response_model=ProblemOut, status_code=status.HTTP_201_CREATED)
 @app.post("/problems", response_model=ProblemOut, status_code=status.HTTP_201_CREATED)
 async def upload_problem(
     name: str = Form(..., min_length=1, max_length=120),
@@ -512,7 +514,7 @@ async def upload_problem(
 ):
     manifest_payload = parse_manifest(manifest)
     normalized_category = normalize_optional_text(category) or infer_category(
-        "problem",
+        "decision_plugin",
         name=name,
         description=description,
         manifest=manifest_payload,
@@ -531,7 +533,7 @@ async def upload_problem(
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Benchmark with this name and version already exists for this user.",
+            detail="Decision plugin with this name and version already exists for this user.",
         )
 
     archive_path = build_archive_path("problems", current_user.id, name, version)
@@ -574,6 +576,7 @@ async def upload_problem(
     )
 
 
+@app.get("/decision-plugins/{problem_id}", response_model=ProblemOut)
 @app.get("/problems/{problem_id}", response_model=ProblemOut)
 def get_problem(problem_id: int, db: Session = Depends(get_db)):
     problem = (
@@ -583,15 +586,16 @@ def get_problem(problem_id: int, db: Session = Depends(get_db)):
         .first()
     )
     if not problem:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Benchmark not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Decision plugin not found.")
     return problem
 
 
+@app.get("/decision-plugins/{problem_id}/download")
 @app.get("/problems/{problem_id}/download")
 def download_problem(problem_id: int, db: Session = Depends(get_db)):
     problem = db.query(models.Problem).filter(models.Problem.id == problem_id).first()
     if not problem:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Benchmark not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Decision plugin not found.")
 
     version_record = (
         db.query(models.ProblemVersion)
@@ -618,6 +622,7 @@ def download_problem(problem_id: int, db: Session = Depends(get_db)):
     return FileResponse(path=archive_path, media_type="application/zip", filename=filename)
 
 
+@app.delete("/decision-plugins/{problem_id}", status_code=status.HTTP_204_NO_CONTENT)
 @app.delete("/problems/{problem_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_problem(
     problem_id: int,
@@ -631,7 +636,7 @@ def delete_problem(
         .first()
     )
     if not problem:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Benchmark not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Decision plugin not found.")
     if problem.owner_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner access required.")
 
@@ -839,7 +844,7 @@ def delete_solver(
 
 @app.post("/{item_type}/{item_id}/rate", response_model=RateResponse)
 def rate_item(
-    item_type: str = ApiPath(..., description="benchmark/benchmarks or solver/solvers"),
+    item_type: str = ApiPath(..., description="decision-plugin/plugin or solver"),
     item_id: int = ApiPath(..., ge=1),
     payload: RatePayload = Body(...),
     _: models.User = Depends(get_current_user),
@@ -847,16 +852,23 @@ def rate_item(
 ):
     normalized = item_type.lower().strip()
 
-    if normalized in {"problem", "problems", "benchmark", "benchmarks"}:
+    if normalized in {
+        "decision-plugin",
+        "decision-plugins",
+        "decision_plugin",
+        "decision_plugins",
+        "plugin",
+        "plugins",
+    }:
         item = db.query(models.Problem).filter(models.Problem.id == item_id).first()
-        tag = "benchmark"
+        tag = "decision_plugin"
     elif normalized in {"solver", "solvers"}:
         item = db.query(models.Solver).filter(models.Solver.id == item_id).first()
         tag = "solver"
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Type must be benchmark/benchmarks or solver/solvers.",
+            detail="Type must be decision-plugin/plugin or solver.",
         )
 
     if item is None:

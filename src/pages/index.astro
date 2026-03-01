@@ -2,7 +2,7 @@
 import Layout from '../layouts/Layout.astro';
 
 const base = import.meta.env.BASE_URL;
-const installCommand = 'pip install "rastion[tui]"';
+const installCommand = 'pip install rastion';
 const initCommand = 'rastion init-agent --path .';
 const runCommand = 'rastion agent-run ./agent_requests/calendar_week_off_30m.json';
 ---
@@ -11,9 +11,9 @@ const runCommand = 'rastion agent-run ./agent_requests/calendar_week_off_30m.jso
   <section class="hero" aria-label="Rastion hero">
     <img class="owl" src={`${base}rastion-logo1-transparent.png`} alt="Rastion owl logo" />
     <p class="kicker">Local-first optimization lab</p>
-    <h1>Talk to your planning problems. Publish your decision plugins.</h1>
+    <h1>Talk to your planning decisions. Publish your decision plugins.</h1>
     <p class="subhead">
-      Rastion lets you model real decisions locally, run solver plugins, and share reusable decision plugins with the community hub.
+      Rastion lets you model real decisions locally, iterate with solvers in your own environment, and share reusable decision plugins with the community hub.
     </p>
 
     <article class="install" aria-label="Install command">
@@ -64,7 +64,6 @@ const runCommand = 'rastion agent-run ./agent_requests/calendar_week_off_30m.jso
     </ol>
     <p class="links">
       <a href={`${base}decision-plugins/`}>Browse Decision Plugins</a>
-      <a href={`${base}solvers/`}>Browse Solvers</a>
     </p>
   </section>
 

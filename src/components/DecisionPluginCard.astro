@@ -18,7 +18,7 @@ const apiUrl = (import.meta.env.PUBLIC_HUB_API_URL || 'http://localhost:8000').r
       <h3>{name}</h3>
       <p class="category-badge">{category || 'Uncategorized'}</p>
     </div>
-    <a href={`${apiUrl}/problems/${id}/download`} target="_blank" rel="noreferrer">Download</a>
+    <a href={`${apiUrl}/decision-plugins/${id}/download`} target="_blank" rel="noreferrer">Download</a>
   </article>
   <p class="owner-name">@{owner.username}</p>
 </div>

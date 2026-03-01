@@ -1,6 +1,6 @@
 # Rastion Hub
 
-Rastion Hub is a fast Astro landing site for sharing optimization solvers and benchmarks.
+Rastion Hub is an Astro + FastAPI app for publishing and browsing community decision plugins.
 
 ## Stack
 
@@ -40,13 +40,13 @@ rastion-hub/
 │   │   └── Layout.astro
 │   ├── pages/
 │   │   ├── index.astro
-│   │   ├── solvers.astro
-│   │   └── benchmarks.astro
+│   │   ├── decision-plugins.astro
+│   │   └── ...legacy redirect routes
 │   └── components/
 │       ├── Header.astro
 │       ├── Footer.astro
 │       ├── ThemeToggle.astro
-│       ├── BenchmarkCard.astro
+│       ├── DecisionPluginCard.astro
 │       ├── SolverCard.astro
 │       └── Card.astro
 ├── public/

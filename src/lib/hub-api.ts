@@ -4,7 +4,7 @@ export interface User {
   avatar_url: string;
 }
 
-export interface Benchmark {
+export interface DecisionPlugin {
   id: number;
   name: string;
   version: string;
@@ -26,7 +26,7 @@ export interface Solver {
   owner: User;
 }
 
-const BENCHMARK_CATEGORY_RULES: Array<[string, string]> = [
+const DECISION_PLUGIN_CATEGORY_RULES: Array<[string, string]> = [
   ['calendar', 'Scheduling'],
   ['schedule', 'Scheduling'],
   ['planner', 'Scheduling'],
@@ -80,14 +80,14 @@ function normalizeCategory(value?: string | null): string | null {
   return cleaned ? cleaned : null;
 }
 
-export function resolveBenchmarkCategory(benchmark: Benchmark): string {
-  const explicit = normalizeCategory(benchmark.category);
+export function resolveDecisionPluginCategory(plugin: DecisionPlugin): string {
+  const explicit = normalizeCategory(plugin.category);
   if (explicit) {
     return explicit;
   }
 
-  const haystack = `${benchmark.name} ${benchmark.description || ''}`.toLowerCase();
-  for (const [token, category] of BENCHMARK_CATEGORY_RULES) {
+  const haystack = `${plugin.name} ${plugin.description || ''}`.toLowerCase();
+  for (const [token, category] of DECISION_PLUGIN_CATEGORY_RULES) {
     if (haystack.includes(token)) {
       return category;
     }
@@ -175,8 +175,8 @@ async function fetchJsonWithTimeout<T>(url: string, fallbackError: string): Prom
   }
 }
 
-export async function listBenchmarks(q?: string, category?: string): Promise<Benchmark[]> {
-  const url = new URL(`${API_URL}/problems`);
+export async function listDecisionPlugins(q?: string, category?: string): Promise<DecisionPlugin[]> {
+  const url = new URL(`${API_URL}/decision-plugins`);
   if (q && q.trim()) {
     url.searchParams.set('q', q.trim());
   }
@@ -184,9 +184,9 @@ export async function listBenchmarks(q?: string, category?: string): Promise<Ben
     url.searchParams.set('category', category.trim());
   }
 
-  const data = await fetchJsonWithTimeout<ListResponse<Benchmark>>(
+  const data = await fetchJsonWithTimeout<ListResponse<DecisionPlugin>>(
     url.toString(),
-    'Unable to load benchmarks.'
+    'Unable to load decision plugins.'
   );
 
   return Array.isArray(data) ? data : data.items;
@@ -209,10 +209,10 @@ export async function listSolvers(q?: string, category?: string): Promise<Solver
   return Array.isArray(data) ? data : data.items;
 }
 
-export async function downloadBenchmark(id: number): Promise<Blob> {
-  const response = await fetch(`${API_URL}/problems/${id}/download`);
+export async function downloadDecisionPlugin(id: number): Promise<Blob> {
+  const response = await fetch(`${API_URL}/decision-plugins/${id}/download`);
   if (!response.ok) {
-    throw new Error('Benchmark download failed.');
+    throw new Error('Decision plugin download failed.');
   }
   return response.blob();
 }
