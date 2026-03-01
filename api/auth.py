@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 
 try:
     from . import models
-except ImportError:  # pragma: no cover
+except ImportError as exc:  # pragma: no cover
+    if "attempted relative import with no known parent package" not in str(exc):
+        raise
     import models
 
 load_dotenv()

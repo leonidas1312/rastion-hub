@@ -5,7 +5,9 @@ from sqlalchemy.orm import relationship
 
 try:
     from .database import Base
-except ImportError:  # pragma: no cover
+except ImportError as exc:  # pragma: no cover
+    if "attempted relative import with no known parent package" not in str(exc):
+        raise
     from database import Base
 
 

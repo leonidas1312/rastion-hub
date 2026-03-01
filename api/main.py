@@ -31,7 +31,9 @@ from sqlalchemy.orm import Session, joinedload
 try:
     from . import auth, models
     from .database import Base, SessionLocal, engine, get_db
-except ImportError:  # pragma: no cover
+except ImportError as exc:  # pragma: no cover
+    if "attempted relative import with no known parent package" not in str(exc):
+        raise
     import auth
     import models
     from database import Base, SessionLocal, engine, get_db
