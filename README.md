@@ -17,6 +17,17 @@ npm run dev
 
 The app is served with a repository base path (default: `/rastion-hub`).
 
+## API runtime config
+
+`api/` supports environment-driven configuration for production:
+
+- `DATABASE_URL` (default: local SQLite file)
+- `RASTION_HUB_STORAGE_DIR` (default: `api/storage`)
+- `MAX_UPLOAD_BYTES` (default: `26214400`)
+- `MAX_ZIP_ENTRIES` (default: `2000`)
+- `MAX_ZIP_UNCOMPRESSED_BYTES` (default: `262144000`)
+- `CORS_ALLOW_ORIGINS` (comma-separated)
+
 ## Build
 
 ```bash

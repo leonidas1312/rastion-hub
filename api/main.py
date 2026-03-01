@@ -1,5 +1,6 @@
 import re
 import shutil
+import zipfile
 from html import escape as html_escape
 from datetime import datetime
 from pathlib import Path
@@ -36,10 +37,31 @@ except ImportError:  # pragma: no cover
     from database import Base, SessionLocal, engine, get_db
 
 APP_DIR = Path(__file__).resolve().parent
-STORAGE_DIR = APP_DIR / "storage"
+
+
+def _int_env(name: str, default: int, minimum: int = 1) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return default
+    return max(parsed, minimum)
+
+
+raw_storage_dir = os.getenv("RASTION_HUB_STORAGE_DIR", "storage").strip()
+storage_path = Path(raw_storage_dir).expanduser() if raw_storage_dir else (APP_DIR / "storage")
+if not storage_path.is_absolute():
+    storage_path = (APP_DIR / storage_path).resolve()
+
+STORAGE_DIR = storage_path
 PROBLEMS_DIR = STORAGE_DIR / "problems"
 SOLVERS_DIR = STORAGE_DIR / "solvers"
 SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+MAX_UPLOAD_BYTES = _int_env("MAX_UPLOAD_BYTES", 25 * 1024 * 1024)
+MAX_ZIP_ENTRIES = _int_env("MAX_ZIP_ENTRIES", 2000)
+MAX_ZIP_UNCOMPRESSED_BYTES = _int_env("MAX_ZIP_UNCOMPRESSED_BYTES", 250 * 1024 * 1024)
 
 PROBLEM_CATEGORY_RULES: list[tuple[str, str]] = [
     ("calendar", "Scheduling"),
@@ -286,6 +308,61 @@ def ensure_zip(upload: UploadFile) -> None:
             detail="Uploaded file must be a .zip archive.",
         )
 
+    try:
+        upload.file.seek(0, os.SEEK_END)
+        size_bytes = upload.file.tell()
+    except OSError:
+        size_bytes = -1
+    finally:
+        upload.file.seek(0)
+
+    if size_bytes > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Archive exceeds max allowed size ({MAX_UPLOAD_BYTES} bytes).",
+        )
+
+    try:
+        with zipfile.ZipFile(upload.file) as archive:
+            infos = archive.infolist()
+            if not infos:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Uploaded archive is empty.",
+                )
+            if len(infos) > MAX_ZIP_ENTRIES:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Archive has too many files (max {MAX_ZIP_ENTRIES}).",
+                )
+
+            total_uncompressed = 0
+            for info in infos:
+                normalized_name = info.filename.replace("\\", "/")
+                path_parts = Path(normalized_name).parts
+                if normalized_name.startswith("/") or ".." in path_parts:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Archive contains invalid file paths.",
+                    )
+
+                total_uncompressed += max(0, info.file_size)
+                if total_uncompressed > MAX_ZIP_UNCOMPRESSED_BYTES:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            "Archive uncompressed size exceeds allowed limit "
+                            f"({MAX_ZIP_UNCOMPRESSED_BYTES} bytes)."
+                        ),
+                    )
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is not a valid ZIP archive.",
+        ) from exc
+    finally:
+        upload.file.seek(0)
+
 
 def persist_upload(upload: UploadFile, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -297,7 +374,9 @@ def persist_upload(upload: UploadFile, destination: Path) -> None:
 def archive_path_from_record(record_path: str | None) -> Path | None:
     if not record_path:
         return None
-    candidate = APP_DIR / record_path
+    candidate = Path(record_path).expanduser()
+    if not candidate.is_absolute():
+        candidate = APP_DIR / candidate
     return candidate if candidate.exists() else None
 
 
@@ -557,7 +636,7 @@ async def upload_problem(
             problem_id=problem.id,
             version=version,
             description=description,
-            file_path=str(archive_path.relative_to(APP_DIR)),
+            file_path=str(archive_path.resolve()),
             created_at=datetime.utcnow(),
         )
         db.add(version_record)
@@ -614,8 +693,10 @@ def download_problem(problem_id: int, db: Session = Depends(get_db)):
     if not archive_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found.")
 
-    problem.download_count += 1
-    db.add(problem)
+    db.query(models.Problem).filter(models.Problem.id == problem.id).update(
+        {models.Problem.download_count: models.Problem.download_count + 1},
+        synchronize_session=False,
+    )
     db.commit()
 
     filename = f"{sanitize_name(problem.name)}-{sanitize_name(problem.version)}.zip"
@@ -745,7 +826,7 @@ async def upload_solver(
             solver_id=solver.id,
             version=version,
             description=description,
-            file_path=str(archive_path.relative_to(APP_DIR)),
+            file_path=str(archive_path.resolve()),
             created_at=datetime.utcnow(),
         )
         db.add(version_record)
@@ -800,8 +881,10 @@ def download_solver(solver_id: int, db: Session = Depends(get_db)):
     if not archive_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found.")
 
-    solver.download_count += 1
-    db.add(solver)
+    db.query(models.Solver).filter(models.Solver.id == solver.id).update(
+        {models.Solver.download_count: models.Solver.download_count + 1},
+        synchronize_session=False,
+    )
     db.commit()
 
     filename = f"{sanitize_name(solver.name)}-{sanitize_name(solver.version)}.zip"

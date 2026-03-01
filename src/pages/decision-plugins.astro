@@ -27,6 +27,9 @@ import DecisionPluginCard from '../components/DecisionPluginCard.astro';
       </div>
     </div>
     <p id="plugin-status" role="status" aria-live="polite">Loading decision plugins...</p>
+    <div class="pagination-row">
+      <button id="plugins-load-more" class="load-more-btn" type="button" hidden>Load more</button>
+    </div>
   </section>
 
   <section id="plugins-grid" class="grid"></section>
@@ -38,17 +41,72 @@ import DecisionPluginCard from '../components/DecisionPluginCard.astro';
   </noscript>
 
   <script>
-    import { API_URL, listDecisionPlugins, resolveDecisionPluginCategory } from '../lib/hub-api';
+    import { listDecisionPluginsPage, resolveDecisionPluginCategory } from '../lib/hub-api';
 
+    const PAGE_SIZE = 24;
     const searchInput = document.getElementById('plugin-search');
     const categoryPills = Array.from(document.querySelectorAll('.category-pill'));
     const statusEl = document.getElementById('plugin-status');
     const gridEl = document.getElementById('plugins-grid');
+    const loadMoreBtn = document.getElementById('plugins-load-more');
+
+    let loadedPage = 1;
+    let totalMatches = 0;
+    let isLoading = false;
+    let requestSequence = 0;
 
     function clearGrid() {
       if (gridEl) {
         gridEl.innerHTML = '';
       }
+    }
+
+    function selectedCategory() {
+      const activePill = categoryPills.find((pill) => pill.classList.contains('is-active'));
+      return activePill instanceof HTMLButtonElement ? activePill.dataset.category || '' : '';
+    }
+
+    function categorySuffix(category) {
+      return category ? ` in ${category}` : '';
+    }
+
+    function pluginNoun(count) {
+      return count === 1 ? 'decision plugin' : 'decision plugins';
+    }
+
+    async function copyCommand(command, button) {
+      if (!(button instanceof HTMLButtonElement)) {
+        return;
+      }
+      const originalLabel = button.textContent || 'Copy';
+      try {
+        if (!navigator.clipboard?.writeText) {
+          throw new Error('Clipboard API unavailable');
+        }
+        await navigator.clipboard.writeText(command);
+        button.textContent = 'Copied';
+      } catch {
+        button.textContent = 'Copy failed';
+      }
+      window.setTimeout(() => {
+        button.textContent = originalLabel;
+      }, 1200);
+    }
+
+    function updateStatusMessage(displayed, total, category) {
+      if (!statusEl) {
+        return;
+      }
+      statusEl.textContent = `${displayed} of ${total} ${pluginNoun(total)} found${categorySuffix(category)}.`;
+    }
+
+    function updateLoadMoreVisibility(displayed, total, hasMore) {
+      if (!(loadMoreBtn instanceof HTMLButtonElement)) {
+        return;
+      }
+      const shouldShow = hasMore && displayed < total;
+      loadMoreBtn.hidden = !shouldShow;
+      loadMoreBtn.disabled = !shouldShow || isLoading;
     }
 
     function renderPluginCard(plugin) {
@@ -69,9 +127,22 @@ import DecisionPluginCard from '../components/DecisionPluginCard.astro';
       categoryBadge.className = 'category-badge';
       categoryBadge.textContent = resolveDecisionPluginCategory(plugin);
 
+      const pullRow = document.createElement('div');
+      pullRow.className = 'pull-row';
+
       const pullCommand = document.createElement('p');
       pullCommand.className = 'pull-command';
-      pullCommand.textContent = `rastion plugin pull ${plugin.name}`;
+      const command = `rastion plugin pull ${plugin.name}`;
+      pullCommand.textContent = command;
+
+      const copyButton = document.createElement('button');
+      copyButton.className = 'copy-command-btn';
+      copyButton.type = 'button';
+      copyButton.textContent = 'Copy';
+      copyButton.addEventListener('click', () => {
+        copyCommand(command, copyButton);
+      });
+      pullRow.append(pullCommand, copyButton);
 
       const downloadCount = document.createElement('p');
       downloadCount.className = 'download-count';
@@ -82,42 +153,73 @@ import DecisionPluginCard from '../components/DecisionPluginCard.astro';
       owner.className = 'card-owner';
       owner.textContent = `@${plugin.owner?.username || 'unknown'}`;
 
-      content.append(title, categoryBadge, pullCommand, downloadCount);
+      content.append(title, categoryBadge, pullRow, downloadCount);
       card.append(content);
       item.append(card, owner);
       return item;
     }
 
-    async function refreshPlugins() {
-      if (!statusEl || !gridEl) {
+    async function refreshPlugins({ append = false } = {}) {
+      if (!statusEl || !gridEl || !(loadMoreBtn instanceof HTMLButtonElement)) {
+        return;
+      }
+      if (isLoading) {
         return;
       }
 
       const query = searchInput instanceof HTMLInputElement ? searchInput.value : '';
-      const activePill = categoryPills.find((pill) => pill.classList.contains('is-active'));
-      const category = activePill instanceof HTMLButtonElement ? activePill.dataset.category || '' : '';
-      const categorySuffix = category ? ` in ${category}` : '';
+      const category = selectedCategory();
+      const requestedPage = append ? loadedPage + 1 : 1;
+      const requestId = ++requestSequence;
 
-      statusEl.textContent = 'Loading decision plugins...';
-      clearGrid();
+      isLoading = true;
+      loadMoreBtn.disabled = true;
+      statusEl.textContent = append ? 'Loading more decision plugins...' : 'Loading decision plugins...';
+      if (!append) {
+        clearGrid();
+        loadedPage = 1;
+        totalMatches = 0;
+      }
 
       try {
-        const plugins = await listDecisionPlugins(query, category);
-
-        if (plugins.length === 0) {
-          statusEl.textContent = `No decision plugins found${categorySuffix}.`;
+        const result = await listDecisionPluginsPage(query, category, requestedPage, PAGE_SIZE);
+        if (requestId !== requestSequence) {
           return;
         }
 
-        statusEl.textContent = `${plugins.length} decision plugin${plugins.length === 1 ? '' : 's'} found${categorySuffix}.`;
+        if (!append) {
+          clearGrid();
+        }
+
+        if (result.items.length === 0 && !append) {
+          statusEl.textContent = `No decision plugins found${categorySuffix(category)}.`;
+          updateLoadMoreVisibility(0, 0, false);
+          return;
+        }
 
         const fragment = document.createDocumentFragment();
-        for (const plugin of plugins) {
+        for (const plugin of result.items) {
           fragment.appendChild(renderPluginCard(plugin));
         }
         gridEl.appendChild(fragment);
+
+        loadedPage = result.page;
+        totalMatches = result.total;
+        const displayed = gridEl.children.length;
+        updateStatusMessage(displayed, totalMatches, category);
+        updateLoadMoreVisibility(displayed, totalMatches, result.hasMore);
       } catch (error) {
-        statusEl.textContent = error instanceof Error ? error.message : 'Failed to load decision plugins.';
+        if (requestId === requestSequence) {
+          statusEl.textContent = error instanceof Error ? error.message : 'Failed to load decision plugins.';
+          updateLoadMoreVisibility(0, 0, false);
+        }
+      } finally {
+        if (requestId === requestSequence) {
+          isLoading = false;
+          if (!loadMoreBtn.hidden) {
+            loadMoreBtn.disabled = false;
+          }
+        }
       }
     }
 
@@ -140,6 +242,12 @@ import DecisionPluginCard from '../components/DecisionPluginCard.astro';
         pill.classList.add('is-active');
         pill.setAttribute('aria-pressed', 'true');
         refreshPlugins();
+      });
+    }
+
+    if (loadMoreBtn instanceof HTMLButtonElement) {
+      loadMoreBtn.addEventListener('click', () => {
+        refreshPlugins({ append: true });
       });
     }
 
@@ -234,6 +342,34 @@ import DecisionPluginCard from '../components/DecisionPluginCard.astro';
       min-height: 1.35rem;
     }
 
+    .pagination-row {
+      min-height: 2rem;
+    }
+
+    .load-more-btn {
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+      padding: 0.42rem 0.82rem;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-primary);
+      font: inherit;
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .load-more-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      border-color: rgba(255, 255, 255, 0.32);
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .load-more-btn:disabled {
+      opacity: 0.65;
+      cursor: default;
+    }
+
     .grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -291,6 +427,31 @@ import DecisionPluginCard from '../components/DecisionPluginCard.astro';
       overflow-wrap: anywhere;
     }
 
+    :global(.pull-row) {
+      display: flex;
+      gap: 0.45rem;
+      align-items: flex-start;
+    }
+
+    :global(.copy-command-btn) {
+      flex: 0 0 auto;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-primary);
+      font: inherit;
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 0.34rem 0.5rem;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    :global(.copy-command-btn:hover) {
+      border-color: rgba(255, 255, 255, 0.34);
+      background: rgba(255, 255, 255, 0.11);
+    }
+
     :global(.download-count) {
       margin: 0;
       font-size: 0.84rem;
@@ -318,6 +479,11 @@ import DecisionPluginCard from '../components/DecisionPluginCard.astro';
     @media (max-width: 900px) {
       .grid {
         grid-template-columns: 1fr;
+      }
+
+      :global(.pull-row) {
+        flex-direction: column;
+        align-items: stretch;
       }
     }
   </style>

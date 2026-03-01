@@ -65,6 +65,14 @@ type ListResponse<T> =
       page_size: number;
     };
 
+export interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
 function defaultApiUrl(): string {
   if (import.meta.env.DEV && typeof window !== 'undefined') {
     return `${window.location.protocol}//${window.location.hostname}:8000`;
@@ -175,7 +183,46 @@ async function fetchJsonWithTimeout<T>(url: string, fallbackError: string): Prom
   }
 }
 
+function toPaginatedResult<T>(
+  payload: ListResponse<T>,
+  fallbackPage: number,
+  fallbackPageSize: number
+): PaginatedResult<T> {
+  if (Array.isArray(payload)) {
+    return {
+      items: payload,
+      total: payload.length,
+      page: fallbackPage,
+      pageSize: fallbackPageSize,
+      hasMore: false
+    };
+  }
+
+  const total = Number.isFinite(payload.total) ? Number(payload.total) : payload.items.length;
+  const page = Number.isFinite(payload.page) ? Number(payload.page) : fallbackPage;
+  const pageSize = Number.isFinite(payload.page_size) ? Number(payload.page_size) : fallbackPageSize;
+  const shownSoFar = page * pageSize;
+
+  return {
+    items: payload.items,
+    total,
+    page,
+    pageSize,
+    hasMore: shownSoFar < total
+  };
+}
+
 export async function listDecisionPlugins(q?: string, category?: string): Promise<DecisionPlugin[]> {
+  const paged = await listDecisionPluginsPage(q, category, 1, 100);
+  return paged.items;
+}
+
+export async function listDecisionPluginsPage(
+  q?: string,
+  category?: string,
+  page = 1,
+  pageSize = 20
+): Promise<PaginatedResult<DecisionPlugin>> {
   const url = new URL(`${API_URL}/decision-plugins`);
   if (q && q.trim()) {
     url.searchParams.set('q', q.trim());
@@ -183,13 +230,15 @@ export async function listDecisionPlugins(q?: string, category?: string): Promis
   if (category && category.trim()) {
     url.searchParams.set('category', category.trim());
   }
+  url.searchParams.set('page', String(Math.max(1, Math.floor(page))));
+  url.searchParams.set('page_size', String(Math.max(1, Math.floor(pageSize))));
 
   const data = await fetchJsonWithTimeout<ListResponse<DecisionPlugin>>(
     url.toString(),
     'Unable to load decision plugins.'
   );
 
-  return Array.isArray(data) ? data : data.items;
+  return toPaginatedResult(data, page, pageSize);
 }
 
 export async function listSolvers(q?: string, category?: string): Promise<Solver[]> {
