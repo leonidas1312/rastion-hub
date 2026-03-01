@@ -69,19 +69,21 @@ import DecisionPluginCard from '../components/DecisionPluginCard.astro';
       categoryBadge.className = 'category-badge';
       categoryBadge.textContent = resolveDecisionPluginCategory(plugin);
 
-      const download = document.createElement('a');
-      download.className = 'download-btn';
-      download.href = `${API_URL}/decision-plugins/${plugin.id}/download`;
-      download.target = '_blank';
-      download.rel = 'noreferrer';
-      download.textContent = 'Download';
+      const pullCommand = document.createElement('p');
+      pullCommand.className = 'pull-command';
+      pullCommand.textContent = `rastion plugin pull ${plugin.name}`;
+
+      const downloadCount = document.createElement('p');
+      downloadCount.className = 'download-count';
+      const count = Number.isFinite(plugin.download_count) ? Number(plugin.download_count) : 0;
+      downloadCount.textContent = `${count} download${count === 1 ? '' : 's'}`;
 
       const owner = document.createElement('p');
       owner.className = 'card-owner';
       owner.textContent = `@${plugin.owner?.username || 'unknown'}`;
 
-      content.append(title, categoryBadge);
-      card.append(content, download);
+      content.append(title, categoryBadge, pullCommand, downloadCount);
+      card.append(content);
       item.append(card, owner);
       return item;
     }
@@ -248,16 +250,12 @@ import DecisionPluginCard from '../components/DecisionPluginCard.astro';
       border-radius: 14px;
       background: linear-gradient(150deg, rgba(255, 255, 255, 0.04), transparent 55%), var(--bg-card);
       padding: 0.85rem 0.9rem;
-      min-height: 96px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.8rem;
+      min-height: 120px;
     }
 
     :global(.card-content) {
       display: grid;
-      gap: 0.45rem;
+      gap: 0.5rem;
     }
 
     :global(.card-name) {
@@ -280,21 +278,23 @@ import DecisionPluginCard from '../components/DecisionPluginCard.astro';
       background: rgba(255, 255, 255, 0.03);
     }
 
-    :global(.download-btn) {
-      flex: 0 0 auto;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 10px;
-      padding: 0.42rem 0.75rem;
-      font-size: 0.88rem;
-      font-weight: 700;
-      color: #241a0c;
-      background: linear-gradient(135deg, var(--coral-bright), #ffd97d);
-      transition: transform 0.15s ease, filter 0.15s ease;
+    :global(.pull-command) {
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.82rem;
+      line-height: 1.35;
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      padding: 0.38rem 0.5rem;
+      overflow-wrap: anywhere;
     }
 
-    :global(.download-btn:hover) {
-      transform: translateY(-1px);
-      filter: brightness(1.05);
+    :global(.download-count) {
+      margin: 0;
+      font-size: 0.84rem;
+      color: var(--text-secondary);
     }
 
     :global(.card-owner) {

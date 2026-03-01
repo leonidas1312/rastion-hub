@@ -3,13 +3,14 @@ interface Props {
   id: number;
   name: string;
   category?: string | null;
+  download_count?: number;
   owner: {
     username: string;
   };
 }
 
-const { id, name, category, owner } = Astro.props;
-const apiUrl = (import.meta.env.PUBLIC_HUB_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+const { name, category, download_count = 0, owner } = Astro.props;
+const safeDownloadCount = Number.isFinite(download_count) ? Number(download_count) : 0;
 ---
 
 <div class="card-item">
@@ -17,8 +18,11 @@ const apiUrl = (import.meta.env.PUBLIC_HUB_API_URL || 'http://localhost:8000').r
     <div class="card-content">
       <h3>{name}</h3>
       <p class="category-badge">{category || 'Uncategorized'}</p>
+      <p class="pull-command">
+        <code>rastion plugin pull {name}</code>
+      </p>
+      <p class="download-count">{safeDownloadCount} download{safeDownloadCount === 1 ? '' : 's'}</p>
     </div>
-    <a href={`${apiUrl}/decision-plugins/${id}/download`} target="_blank" rel="noreferrer">Download</a>
   </article>
   <p class="owner-name">@{owner.username}</p>
 </div>
@@ -34,16 +38,12 @@ const apiUrl = (import.meta.env.PUBLIC_HUB_API_URL || 'http://localhost:8000').r
     border-radius: 14px;
     background: linear-gradient(150deg, rgba(255, 255, 255, 0.04), transparent 55%), var(--bg-card);
     padding: 0.85rem 0.9rem;
-    min-height: 78px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.8rem;
+    min-height: 120px;
   }
 
   .card-content {
     display: grid;
-    gap: 0.45rem;
+    gap: 0.5rem;
   }
 
   h3 {
@@ -67,21 +67,27 @@ const apiUrl = (import.meta.env.PUBLIC_HUB_API_URL || 'http://localhost:8000').r
     background: rgba(255, 255, 255, 0.03);
   }
 
-  a {
-    flex: 0 0 auto;
+  .pull-command {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.82rem;
+    line-height: 1.35;
+    color: var(--text-primary);
     border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 10px;
-    padding: 0.42rem 0.75rem;
-    font-size: 0.88rem;
-    font-weight: 700;
-    color: #241a0c;
-    background: linear-gradient(135deg, var(--coral-bright), #ffd97d);
-    transition: transform 0.15s ease, filter 0.15s ease;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 0.38rem 0.5rem;
+    overflow-wrap: anywhere;
   }
 
-  a:hover {
-    transform: translateY(-1px);
-    filter: brightness(1.05);
+  .pull-command code {
+    white-space: normal;
+  }
+
+  .download-count {
+    margin: 0;
+    font-size: 0.84rem;
+    color: var(--text-secondary);
   }
 
   .owner-name {
